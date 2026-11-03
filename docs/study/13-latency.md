@@ -79,10 +79,15 @@ STT를 Soniox로 교체 (정확도 ↑)
      ▼
   말 끝 0.4~0.5 + LLM 0.8 + TTS 0.17 ≈ 1.4초        ← 병목: 다시 LLM
      │ ④ 지시문으로 답 길이 119자 → 77자 (LLM 생성·TTS 시간 감소)
-     │ ⑤ 즉시 반응 "네네" (체감 지연 감소, 11장)
+     │ ⑤ 즉시 반응 "네네" + 첫머리 맞장구 코드 제거 (11장)
      ▼
-  다음 과제: LLM 첫 토큰
+  첫소리까지 0.6~0.8초 (말 끝 0.41~0.64 + TTS 0.17)  ← 목표(1초 안팎) 안으로
+  본 답 시작은 그대로 약 1.4초                       ← 실제 병목은 여전히 LLM
+     ▼
+  다음 과제: LLM 첫 토큰, 즉시 반응 미리 합성, 본 답 길이 다시 잡기
 ```
+
+⑤가 "체감"과 "실제"를 갈라놓은 지점이라는 점에 주목하세요. 고객이 겪는 첫 침묵은 목표 안으로 들어왔지만, 대화의 **내용**이 나오는 시각(본 답 1.4초)은 바뀌지 않았습니다. 숨기기 기법은 다른 최적화를 대신하지 못하고 시간을 벌어 줄 뿐입니다. 그래서 다음 과제 목록에서 LLM 첫 토큰이 빠지지 않습니다.
 
 ### 각 기법의 원리 분류
 
@@ -111,9 +116,19 @@ STT를 Soniox로 교체 (정확도 ↑)
 | 후보 | 기대 효과 | 비고 |
 | --- | --- | --- |
 | 워커를 GCP 서울에 배치 | 네트워크 왕복 일부 감소 | 지금은 맥(서울) → 미국 API. 워커 위치보다 **API 서버 위치**가 더 중요할 수 있음 |
-| 아시아 리전·빠른 제공자 | 왕복 150~200ms 감소 가능 | 공급사 지원 여부 확인 |
+| 아시아 리전·빠른 제공자 | 왕복 150~200ms 감소 가능 | 공급사 지원 여부 확인 → 아래 조사 결과 |
 | 선제 생성 적중률 올리기 | 겹친 만큼 감소 | 보정을 `sttNode`로 옮겨 무효화 방지(11-4절) |
 | 다른 모델 | — | GPT-6 Luna는 비슷하거나 느렸음 |
+
+#### LLM을 아시아에서 처리할 수 있나 (2026-11-03 조사, poc-results)
+
+[poc-results.md](../poc-results.md) "LLM을 아시아에서 돌릴 수 있나"의 결과입니다.
+
+- 서울에서 `api.anthropic.com`까지 **TCP 연결은 0.04초**였습니다. 가까운 접속 지점이 있다는 뜻이고, 첫 토큰 0.7~1.2초의 대부분은 **접속 지점 뒤의 처리**(실제 모델 서버까지의 거리, 대기열, 프리필)에 있습니다. "네트워크가 가까우니 빠르겠지"라는 추측을 잰 값이 바로잡은 사례입니다.
+- Haiku 5.5를 **아시아에서 처리한다고 문서로 보장되는 선택지는 Amazon Bedrock의 `jp.` 추론 프로필(도쿄·오사카)뿐**이었습니다. Anthropic API의 처리 위치 옵션(`inference_geo`)은 `global`·`us`뿐이고, Vertex AI와 Anthropic 운영 클라우드 경로도 아시아 처리는 없었습니다. Bedrock `jp.`는 글로벌보다 약 10% 비쌉니다.
+- 판단은 "바꾸기 전에 같은 프롬프트로 Anthropic API와 Bedrock `jp.`를 A/B로 잰다"입니다. 그리고 쓰려면 지금의 Anthropic 플러그인(오래된 SDK 0.33 기반)이 Bedrock 클라이언트를 받을 수 있는지부터 확인해야 합니다. 8-8절처럼 플러그인을 감싸는 방식이 다시 필요할 수 있습니다.
+
+**접속 지점(edge)과 처리 위치(region)는 다르다**는 점이 이 조사의 핵심입니다. 요청이 가까운 곳으로 들어가도 모델은 먼 곳에서 돌 수 있고, 지연은 후자가 정합니다.
 
 ### 코드 흐름에서 발견한 작은 지연들
 
@@ -123,14 +138,77 @@ SDK 코드를 읽으며 찾은, 아직 측정하지 않은 지연 요인입니�
 | --- | --- | --- |
 | 문장 모으기 | blingfire의 20자 미만 합치기 + 두 문장 규칙 → 짧은 답은 LLM 끝까지 TTS로 안 감 (10-4절) | TTS 시작 시각 측정, `minSentenceLength` 조정 |
 | 맞장구 보류 | `withoutLeadingAck`가 첫 12자를 모음 (12장) | 토큰 몇 개 분량. 메트릭에 안 잡힘 |
-| 즉시 반응의 TTS 시작 | `say()`는 재생 허가 후 TTS 시작 → 즉시 반응도 TTS 첫 음성만큼 기다림 (11-6절) | 즉시 반응을 미리 합성해 두는 방법 검토 (고정 문장 3개뿐) |
+| 즉시 반응의 TTS 시작 | `say()`는 재생 허가 후 TTS 시작 → 즉시 반응도 TTS 첫 음성만큼 기다림 (11-6절) | **작업 중인 코드에서 미리 합성으로 대응** (아래) |
 | ElevenLabs 첫 연결 | `prewarm` 미구현 → 첫 발화가 연결 비용 (10-3절) | 첫 멘트 지연 측정 |
 | 고지와 질문 사이 | 두 번째 `say()`가 재생 허가 후 합성 시작 (11-2절) | 자연스러운지 귀로 판단 |
 | 선제 생성 시도 소진 | PREFLIGHT마다 재시작, 한 턴 3회 제한 (11-4절) | 로그에서 시도 횟수 확인 |
 
-### 즉시 반응을 미리 합성한다면
+### 즉시 반응 미리 합성 (2026-11-03 갱신: 작업 중인 코드에 구현됨)
 
-즉시 반응은 세 문장뿐이고 매번 같습니다. 통화 시작 때 한 번 합성해 오디오 프레임 배열로 저장해 두고, `say()`에 오디오를 직접 넘기면 TTS 왕복이 사라집니다. SDK의 `session.say(text, { audio })`는 `audio`에 `ReadableStream<AudioFrame>`을 받습니다(`voice/agent_session.ts`). 스트림은 한 번 읽으면 끝나므로, 저장한 프레임 배열로 **매번 새 스트림을 만들어**(`ReadableStream.from(frames)`) 넘겨야 합니다. 그러면 "고객 말 끝 → 첫 소리"가 사실상 말 끝 판단 시간만 남습니다. 지금 코드에는 없는 **개선 아이디어**입니다.
+[poc-results.md](../poc-results.md)의 즉시 반응 측정도 남은 과제로 "즉시 반응 음성을 미리 합성해 두거나, 반응 종류를 늘린다"를 적었습니다. 즉시 반응은 세 문장뿐이고 매번 같습니다. 통화 시작 때 한 번 합성해 오디오 프레임 배열로 저장해 두고, `say()`에 오디오를 직접 넘기면 TTS 왕복이 사라집니다. SDK의 `session.say(text, { audio })`는 `audio`에 `ReadableStream<AudioFrame>`을 받습니다(`voice/agent_session.ts`).
+
+이 아이디어가 작업 중인 코드에 [src/ack-audio.ts](../../src/ack-audio.ts)로 들어갔습니다.
+
+```ts
+export class AckAudioCache {
+  #frames = new Map<string, AudioFrame[]>();
+
+  async preload(engine: tts.TTS): Promise<void> {
+    await Promise.all(                         // 세 문장을 동시에 합성
+      ACKS.map(async (text) => {
+        try {
+          const frames: AudioFrame[] = [];
+          for await (const audio of engine.synthesize(text)) frames.push(audio.frame);
+          if (frames.length) this.#frames.set(text, frames);
+        } catch (error) {
+          log().warn({ error, text }, '즉시 반응 음성을 미리 만들지 못했습니다');   // 실패해도 통화는 계속
+        }
+      }),
+    );
+  }
+
+  audio(text: string): ReadableStream<AudioFrame> | undefined {
+    const frames = this.#frames.get(text);
+    return frames ? ReadableStream.from(frames) : undefined;   // 꺼낼 때마다 새 스트림
+  }
+}
+```
+
+```ts
+// src/main.ts: 첫 멘트와 동시에 미리 합성 시작 (기다리지 않음)
+const ackAudio = new AckAudioCache();
+void ackAudio.preload(tts);
+
+// src/agent.ts: 준비된 소리가 있으면 넘기고, 없으면 평소처럼 합성
+const audio = ackAudio?.audio(ack);
+ctx.agent.session.say(ack, { ...(audio ? { audio } : {}), addToChatCtx: false, allowInterruptions: true });
+```
+
+볼 점입니다.
+
+| 설계 | 이유 |
+| --- | --- |
+| `synthesize()` (비스트리밍) | ElevenLabs 플러그인의 `synthesize()`는 웹소켓이 아니라 **HTTP 요청 한 번**으로 문장 전체를 합성합니다(`ChunkedStream`). 대화용 웹소켓 연결(10-3절)과 따로 돌아 첫 멘트 합성을 방해하지 않습니다 |
+| `void preload(...)`, 기다리지 않음 | 미리 합성(약 1초)을 기다리면 첫 멘트가 늦어집니다. 첫 턴 전에 끝날 가능성이 높으니 병렬로 둡니다 |
+| 준비 안 됐으면 `undefined` → 평소 합성 | **점진적 개선**. 캐시가 비어도 기능은 그대로이고 빨라지기만 합니다 |
+| 실패를 삼키고 로그 | 즉시 반응은 "있으면 좋은" 기능이라 실패가 통화를 막으면 안 됩니다(1장 원칙 5) |
+| 꺼낼 때마다 `ReadableStream.from(frames)` | 스트림은 한 번 읽으면 끝나므로(12장), 원본은 배열로 두고 매번 새 스트림을 만듭니다 |
+| `...(audio ? { audio } : {})` | `exactOptionalPropertyTypes` 때문에 쓰는 조건부 스프레드(15-1절) |
+
+기대 효과는 "고객 말 끝 → 첫 소리"에서 TTS 첫 음성(약 0.17초)이 빠져 **말 끝 판단 시간만 남는 것**입니다. 턴마다 TTS를 부르지 않으니 비용도 줄어듭니다. 실측은 아직 없습니다. 미리 합성한 소리는 `ttsTextTransforms`를 거치지 않지만, 즉시 반응에는 제품명이 없어 상관없습니다.
+
+### 지연 기록에 섞이는 값 (확인 필요)
+
+작업 중인 [src/call-result.ts](../../src/call-result.ts)는 통화마다 구간별 지연을 모아 통화 결과로 보냅니다(15-6절). 13-3절의 메트릭 정의를 떠올리면, 이 기록에 의도와 다른 값이 섞일 수 있습니다.
+
+| 섞이는 값 | 이유 | 대응 |
+| --- | --- | --- |
+| 취소된 선제 생성의 LLM 지표 | 선제 생성이 버려져도 `llm_metrics`가 `cancelled: true`로 나옴(11-4절). 지금 코드는 이 표시를 보지 않고 `ttftMs`를 모두 담음 | `metric.cancelled`인 것은 빼기 |
+| 선제 생성의 TTFT 기준점 | 턴 확정 전부터 잰 값이라 체감보다 길게 보임 | 해석할 때 감안. 체감은 `e2eLatency`로 |
+| 미리 합성 3건의 TTS 지표 | 세션은 TTS 객체의 `metrics_collected`를 구독하는데, `preload`도 **같은 TTS 객체**로 합성함. 세션이 구독을 시작한 뒤에 끝난 미리 합성은 통화 초반 `ttsTtfbMs`에 들어감 | 미리 합성용 TTS 객체를 따로 만들거나, 해석할 때 감안 |
+| 즉시 반응과 본 답의 TTS | 둘 다 TTS 지표로 잡힘 (파일 주석에 적혀 있음) | 미리 합성이 되면 즉시 반응 몫은 사라짐 |
+
+통화별 병목을 보려고 만든 기록인 만큼, 무엇이 섞여 있는지 알고 읽어야 합니다. 코드 흐름으로 본 것이므로 실제 기록 몇 건으로 확인할 항목입니다.
 
 ---
 

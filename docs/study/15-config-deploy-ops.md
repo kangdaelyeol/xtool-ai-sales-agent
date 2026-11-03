@@ -12,7 +12,8 @@
 
 | 종류 | 예 | 성격 |
 | --- | --- | --- |
-| 비밀값 | `LIVEKIT_API_SECRET`, `ANTHROPIC_API_KEY`, `ELEVEN_API_KEY`, `SONIOX_API_KEY` | 절대 커밋 안 함. 로컬은 `.env.local`, 운영은 Secret |
+| 비밀값 | `LIVEKIT_API_SECRET`, `ANTHROPIC_API_KEY`, `ELEVEN_API_KEY`, `SONIOX_API_KEY`, `VOICE_AGENT_SECRET`(결과 전송, 15-6절) | 절대 커밋 안 함. 로컬은 `.env.local`, 운영은 Secret |
+| 연동 주소 | `VOICE_RESULT_URL` | 비우면 결과를 보내지 않음 (로컬 개발 기본) |
 | 동작 선택 | `STT_PROVIDER`, `LLM_MODEL`, `LLM_THINKING`, `TTS_VOICE`… | 비워 두면 기본값 |
 
 ### loadConfig 해부
@@ -144,7 +145,7 @@ patchedDependencies:               # ③ 외부 패키지 패치
 ```text
 base   node:24-slim + ca-certificates + pnpm 12.16.1
   │
-build  ① package.json, pnpm-lock.yaml만 복사 → pnpm install --frozen-lockfile
+build  ① package.json, pnpm-lock.yaml, pnpm-workspace.yaml, .npmrc, patches/ 복사 → pnpm install --frozen-lockfile
   │    ② npx livekit-agents download-files
   │    ③ COPY . .  (나머지 소스)
   │    ④ pnpm prune --prod  (개발 의존성 제거)
@@ -176,11 +177,11 @@ build  ① package.json, pnpm-lock.yaml만 복사 → pnpm install --frozen-lock
 
 나중에 모델을 받는 플러그인을 추가했을 때를 위한 안전망으로 두는 것은 괜찮습니다.
 
-### ⚠ 확인된 문제: 설치 단계에 워크스페이스 설정이 없음
+### 사례: 설치 단계에 워크스페이스 설정이 없던 문제 (고침)
 
-①에서 `package.json`과 `pnpm-lock.yaml`만 복사하고 설치합니다. 그런데 lockfile에는 `pnpm-workspace.yaml`의 `overrides`와 `patchedDependencies` 정보가 기록되어 있습니다. 설치 시점에 그 설정 파일이 없으면 lockfile과 설정이 어긋납니다.
+스타터에서 가져온 처음 Dockerfile은 ①에서 `package.json`과 `pnpm-lock.yaml`만 복사하고 설치했습니다. 그런데 이 프로젝트의 lockfile에는 `pnpm-workspace.yaml`의 `overrides`와 `patchedDependencies` 정보가 기록되어 있습니다. 설치 시점에 그 설정 파일이 없으면 lockfile과 설정이 어긋납니다. 프로젝트에서 overrides와 패치를 추가하면서 lockfile에 그 정보가 기록됐는데, Dockerfile의 복사 순서는 그대로였던 것이 원인입니다.
 
-이 문서를 쓰면서 같은 조건(두 파일만 있는 빈 폴더)에서 `pnpm install --frozen-lockfile --lockfile-only`를 실행해 보니 다음 오류로 멈췄습니다.
+같은 조건(두 파일만 있는 빈 폴더)에서 `pnpm install --frozen-lockfile`을 실행하면 다음 오류로 멈춥니다.
 
 ```text
 ERR_PNPM_LOCKFILE_CONFIG_MISMATCH
@@ -188,7 +189,7 @@ Cannot proceed with the frozen installation. The current "overrides"
 configuration doesn't match the value found in the lockfile
 ```
 
-`pnpm-workspace.yaml`, `.npmrc`, `patches/`를 함께 넣으면 통과했습니다. 따라서 **지금 Dockerfile로는 이미지 빌드가 설치 단계에서 실패할 가능성이 큽니다**(전체 `docker build`는 돌려 보지 않았습니다). 고치는 방법은 설치 전에 이 파일들을 함께 복사하는 것입니다.
+그래서 설치 전에 설정 파일과 패치를 함께 복사하도록 고쳤습니다(커밋 `d3a605b`).
 
 ```dockerfile
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
@@ -196,11 +197,45 @@ COPY patches ./patches
 RUN pnpm install --frozen-lockfile
 ```
 
-이렇게 해야 Soniox 패치(6장)도 이미지에 확실히 적용됩니다. 패치가 빠진 채 빌드되면 오류 없이 **말 끝 판단만 다시 느려지는**, 찾기 어려운 회귀가 생깁니다.
+고친 뒤에는 Docker 없이 빌드 단계를 그대로 따라 해 확인했습니다. 설치가 통과하고, Soniox 플러그인 `dist/stt.js`와 `dist/stt.cjs`에 `{"type":"finalize"}` 패치가 들어가며, `pnpm prune --prod` 뒤에도 패치가 남고 tsc·vitest·eslint는 빠지며, 운영 의존성만으로 `node src/main.ts --help`가 모든 플러그인을 불러 정상 실행됐습니다. 실제 `docker build`는 아직 돌려 보지 않았습니다.
+
+이 사례에서 배울 점은 **패치가 빠져도 오류가 나지 않는 경로가 가장 위험하다**는 것입니다. lockfile 검사가 없었다면 패치 없는 이미지가 조용히 만들어지고, 운영에서 **말 끝 판단만 다시 느려지는**(6장) 찾기 어려운 회귀가 생겼을 것입니다. `--frozen-lockfile`이 설정 불일치를 오류로 잡아 준 덕분에 빌드 시점에 드러난 것입니다.
 
 ---
 
-## 15-5. 쿠버네티스(GKE)에 올릴 때 챙길 것
+## 15-5. 워커를 어디에 띄우나: LiveKit Cloud 또는 GKE
+
+> 2026-11-03 갱신. 웹 테스트([web-test.md 6-3](../web-test.md#6-3-에이전트-워커--둘-중-하나))에서 LiveKit Cloud 배포안이 구체화되어 이 절을 둘로 나눴습니다.
+
+| | LiveKit Cloud 배포 (`lk agent create`) | 직접 운영 (GKE·GCE 서울) |
+| --- | --- | --- |
+| 빌드 | LiveKit이 **이 레포의 Dockerfile로 원격 빌드** | 우리가 빌드·푸시 |
+| 리전 | 미국·유럽·뭄바이 (서울 없음) | 서울 가능 |
+| 턴 감지 기본값 | 클라우드 `v1` | 로컬 `v1-mini` (4-5절) |
+| 적응형 끼어들기 기본값 | **켜짐** | 꺼짐 (`mode: 'adaptive'` 명시 필요, 7-5절) |
+| 배포 시 진행 중 통화 | production 재배포는 진행 중 세션을 최대 1시간 기다림 (LiveKit 문서) | grace period를 직접 설정 |
+| 부하 기준 | LiveKit Cloud가 정함 (코드의 임계값 설정은 무시됨) | 코드 기본값 0.7 |
+| 무료(Build) 요금제 | production도 쉬고 있으면 0대로 줄어 **첫 통화에 콜드 스타트** | 해당 없음 |
+| 운영 부담 | 작음 | 큼 |
+
+[tech-stack.md](../tech-stack.md)는 지연 때문에 서울 직접 운영을 추천했고, 웹 테스트는 우선 LiveKit Cloud를 택했습니다. 4·7장에서 "PoC(dev)와 운영이 다르다"고 지적한 턴 감지·끼어들기 차이는 **직접 운영할 때의 이야기**이고, LiveKit Cloud에 배포하면 dev와 같은 쪽(클라우드 `v1`, 적응형 켜짐)으로 갑니다. 대신 LLM이 미국에 있으니 미국 리전이 무난하다는 판단입니다(서울↔미국 왕복이 고객 음성 경로로 옮겨 감). 지연은 [poc-results.md](../poc-results.md) 방식으로 다시 재야 합니다.
+
+### LiveKit Cloud 배포: 비밀값을 넘기는 방법
+
+```bash
+# 부품 키만 담은 임시 파일 (LIVEKIT_* 는 LiveKit Cloud가 넣어 주므로 뺌)
+grep -E '^(ANTHROPIC_API_KEY|ELEVEN_API_KEY|SONIOX_API_KEY|TTS_VOICE)=' .env.local > .env.agent-secrets
+lk agent create --secrets-file .env.agent-secrets
+rm .env.agent-secrets
+```
+
+- 이미지에는 `.env.*`가 들어가지 않으므로(15-4절) 비밀값은 **LiveKit Cloud의 비밀값 저장소**로 따로 넘깁니다. 컨테이너에서는 환경변수로 보입니다.
+- 임시 파일 `.env.agent-secrets`는 `.gitignore`에 추가되어 있습니다. 명령이 중간에 실패해 `rm`이 안 돌아도 실수로 커밋되지 않게 하는 **이중 안전장치**입니다.
+- `LIVEKIT_URL`·키는 LiveKit Cloud가 넣어 주므로 빼는 것입니다. 세션 리포트 업로드(15-6절)도 이 값으로 인증됩니다.
+- 처음 만들면 `livekit.toml`(프로젝트·에이전트 정보)이 생기고, 커밋합니다. 이후 코드 변경은 `lk agent deploy`로 올립니다.
+- 원격 빌드가 Dockerfile을 쓰므로, 15-4절의 설치 단계 수정이 **이 배포의 전제 조건**입니다.
+
+### 직접 운영(GKE)에 올릴 때 챙길 것
 
 배포 설정은 아직 없습니다. 4장의 실행 구조에서 나오는 요구 사항을 정리합니다.
 
@@ -215,8 +250,6 @@ RUN pnpm install --frozen-lockfile
 | `/tmp` 쓰기 | 읽기 전용 루트 파일시스템이면 emptyDir 마운트 | 세션 녹음·리포트를 임시 폴더에 씀 (15-6절) |
 | 턴 감지·끼어들기 | `TurnDetector({ version })`, `interruption.mode` 명시 여부 결정 | `start`에서는 기본값이 dev와 다름 (4-5절, 7장) |
 | 리전 | 워커 GCP 서울, 미디어·SIP는 LiveKit Cloud 일본 | [tech-stack.md 4-1](../tech-stack.md#4-1-프레임워크) |
-
-LiveKit Cloud에 에이전트를 직접 배포(`lk agent deploy`)하는 선택지도 있습니다. 그러면 턴 감지 `v1`과 적응형 끼어들기가 기본으로 켜지고 운영 부담이 줄지만, 에이전트 리전이 미국·유럽·뭄바이뿐이라 서울과 멀어집니다. 지연과 운영 편의의 교환입니다.
 
 ---
 
@@ -248,11 +281,43 @@ log().info({ config, callId: call.callId }, '통화 시작');
 - 업로드 인증은 **환경변수 `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`에서만** 만듭니다. 명령줄 플래그로만 키를 넘기면 업로드가 실패합니다.
 - **개인정보**: 녹음과 대화 기록이 LiveKit Cloud로 갑니다. SIP 참가자의 **전화번호가 트레이스 속성으로 기록**됩니다. 녹음 고지·처리방침·국외 이전 동의([tech-stack.md 11장](../tech-stack.md#11-직접-재-봐야-할-것))와 함께, 리포트의 마스킹(redaction) 옵션을 검토해야 합니다.
 
+### 통화 결과 전송 (2026-11-03 추가, 작업 중인 코드)
+
+통화가 끝나면 에이전트가 대화록과 지연 기록을 functions-xtool로 보냅니다([src/call-result.ts](../../src/call-result.ts)). 요약과 판정 칸 추출은 받는 쪽이 따로 합니다. 1장 그림의 "통화 후 처리"로 가는 첫 연결입니다.
+
+받는 쪽([web-test.md 4-1](../web-test.md#4-1-통화-결과-저장판정조회))은 `submitVoiceCallResult`가 Firestore `calls/{callId}`에 저장하고, 문서가 생기면 트리거 함수가 Opus 5.5로 요약·판정 칸을 뽑아 붙입니다(8-10절). 관리 화면은 통화가 끝나면 3초마다(최대 2분) 결과를 조회해 보여 줍니다. 받는 쪽은 **같은 통화를 다시 보내도 덮어쓰지 않게** 만들어져 있습니다. 같은 요청을 여러 번 보내도 결과가 같은 성질(멱등성, 10-6절에서 본 그 개념)이 있으면, 나중에 에이전트 쪽에 재전송을 붙여도 중복 기록 걱정이 없습니다.
+
+```text
+통화 중   MetricsCollected → addLatency (EOU·LLM 첫 토큰·TTS 첫 음성을 배열에 쌓음)
+          Close 이벤트 → 끝난 이유 기록 (endCall이면 그 사유)
+잡 종료   종료 콜백 → submitCallResult
+            POST VOICE_RESULT_URL (functions-xtool submitVoiceCallResult)
+            헤더 X-Voice-Agent-Secret: VOICE_AGENT_SECRET (공유 비밀키)
+            본문 { callId, customer, startedAt, endedAt, endReason, transcript, latency }
+            10초 시간 제한, 실패하면 로그만 남김
+```
+
+| 설계 | 이유 |
+| --- | --- |
+| **종료 콜백**에서 보냄 | 잡이 끝날 때 한 번. 세션이 닫힌 뒤라 대화 기록이 완성돼 있음 |
+| 대화록 = `session.history`에서 user·assistant 글만 | 지시문·도구 호출은 뺌. 즉시 반응은 기록에 없으니 자연히 빠짐(11-6절). 테스트(`call-result.test.ts`)가 고정 |
+| 공유 비밀키 헤더 | 서버끼리의 단순 인증. 키는 환경변수로만(`.env.example`에 자리만 있음). [README](../../README.md)의 "functions-xtool API(공유 비밀키 인증)"가 처음 구현된 곳 |
+| 설정이나 `callId`가 없으면 보내지 않음 | 로컬 개발·콘솔 테스트(가상 고객, `callId` 없음)에서 운영 데이터가 생기지 않게 |
+| `AbortSignal.timeout(10_000)` | 받는 쪽이 느려도 잡 종료가 무한히 늦어지지 않게 |
+| 실패는 `.catch`로 로그만 | 결과 전송 실패가 종료 절차를 멈추면 안 됨. 대신 **결과가 유실될 수 있음** → 재전송 장치는 아직 없음 |
+
+알아 둘 점입니다.
+
+- **고객이 먼저 끊으면 언제 보내지나.** 종료 콜백은 잡이 끝날 때 돕니다. AI가 끊는 경로(`end_call`, `endCall`)는 `ctx.shutdown()`을 부르므로 바로 보내지만, 고객이 먼저 끊으면 세션만 닫히고 잡은 서버가 방을 정리할 때까지 남을 수 있습니다(4-7절, 16-2 #12). 그러면 전송도 그만큼 늦어집니다. 세션 `Close` 이벤트에서 `ctx.shutdown()`을 부르면 경로가 하나로 모입니다.
+- **대화록의 표기.** TTS alignment 때문에 assistant 말에 발음 변환된 글("에프투 울트라")이 남을 수 있습니다(10-6절, 16-2 #10). 받는 쪽의 판정 추출이 기기 이름을 찾을 때 영향을 줍니다.
+- **세 번째 계약.** 전송 본문의 `CallTurn` 모양은 originalshq의 `voice-call/types.ts`와 맞춰야 합니다(파일 주석). 4-3절의 "계약이 두 곳에 적혀 있다는 위험"이 하나 더 생긴 셈입니다.
+- 지연 기록에 섞이는 값은 13-5절을 봅니다.
+
 ### 앞으로 필요한 것
 
 | 무엇 | 왜 |
 | --- | --- |
-| 통화별 결과를 Firestore에 저장 | 검수 화면, 통계 |
+| 통화별 결과를 Firestore에 저장 | 검수 화면, 통계. **에이전트 쪽 전송은 작업 중** (위). 받는 쪽 저장·재전송은 originalshq |
 | 지연 백분위수 대시보드 | 꼬리 지연 감시 (13-6절) |
 | 오류율 (STT·LLM·TTS 연결 실패) | 공급사 장애 감지 |
 | 통화당 비용 | [tech-stack.md 9장](../tech-stack.md#9-비용-추정)의 추정 검증 |
@@ -281,7 +346,9 @@ LiveKit 자체 부품들(턴 감지, 끼어들기, 노이즈 제거)은 **실패
 
 | 영역 | 항목 | 근거 |
 | --- | --- | --- |
-| 비밀값 | `.env.local` 커밋 금지, 운영은 Secret | [setup-checklist.md 10장](../setup-checklist.md#10-커밋-전-확인) |
+| 비밀값 | `.env.local` 커밋 금지, 운영은 Secret, LiveKit Cloud는 `--secrets-file` (임시 파일도 `.gitignore`) | [setup-checklist.md 10장](../setup-checklist.md#10-커밋-전-확인), 15-5 |
+| 웹 테스트 접근 | 토큰 발급 함수가 Firebase 로그인 + 관리자 확인. 외부 공개 전 횟수 제한·봇 차단·동의 문구 필요 | 3-7, [web-test.md 7장](../web-test.md#7-주의) |
+| 테스트 직원 고지 | 내부 테스트도 실제 음성이 해외 API로 감 | [web-test.md 7장](../web-test.md#7-주의) |
 | 비용 폭탄 | Anthropic 월 사용 한도, SIP 국제전화 차단·발신 규칙·방화벽 | [telephony-setup.md 7장](../telephony-setup.md#7-보안-요금-폭탄-막기) |
 | 공급망 | `allowBuilds`, lockfile 고정, 패치 최소화 | 15-3절 |
 | 고지 | AI·녹음 고지를 고정 문장으로, 끼어들기 막음 | 9장 |
@@ -301,8 +368,9 @@ LiveKit 자체 부품들(턴 감지, 끼어들기, 노이즈 제거)은 **실패
 코드    Node 24가 .ts를 바로 실행 (타입 지우기) ← tsc는 검사만 (엄격 옵션)
 의존성  pnpm 12.16.1 고정, lockfile, allowBuilds·overrides·patch
 이미지  다단계 빌드, ca-certificates, 비루트, exec CMD (SIGTERM → drain)
-        ⚠ 설치 단계에 pnpm-workspace.yaml·patches 복사 필요 (재현됨)
-배포    grace period ≥ 최장 통화, 헬스 체크 8081, CPU 최적화형, 턴 감지·끼어들기 모드 명시
+        설치 전에 pnpm-workspace.yaml·.npmrc·patches 복사 (lockfile 검사가 잡아 준 문제, 고침)
+배포    LiveKit Cloud(원격 빌드, v1·적응형 기본, 미국 리전) 또는 GKE 서울
+        GKE면 grace period ≥ 최장 통화, 헬스 체크 8081, CPU 최적화형, 턴 감지·끼어들기 모드 명시
 관측    메트릭 로그, LiveKit Cloud 세션 리포트 (개인정보 검토)
 장애    LiveKit 부품은 자동 강등, 외부 공급사는 FallbackAdapter 설계 필요
 ```
@@ -316,7 +384,7 @@ LiveKit 자체 부품들(턴 감지, 끼어들기, 노이즈 제거)은 **실패
 3. `exactOptionalPropertyTypes`가 켜진 상태에서 `voiceId: config.voice`(값이 undefined일 수 있음)를 그대로 쓰면 왜 안 됩니까?
 4. 타입만 쓰는 import를 `import type` 없이 쓰면 Node에서 무슨 일이 생깁니까?
 5. Dockerfile의 CMD를 셸 형식으로 바꾸면 배포 때 어떤 문제가 생깁니까?
-6. 지금 Dockerfile의 설치 단계가 실패하는 이유와, 실패하지 않더라도 생길 수 있는 더 위험한 문제는?
+6. 고치기 전 Dockerfile의 설치 단계가 실패한 이유와, 실패하지 않았다면 생길 수 있었던 더 위험한 문제는?
 
 <details>
 <summary>답 보기</summary>
@@ -326,6 +394,6 @@ LiveKit 자체 부품들(턴 감지, 끼어들기, 노이즈 제거)은 **실패
 3. 선택 속성에 `undefined`를 명시적으로 넣는 것이 타입 오류이고, 라이브러리에 따라 `undefined`가 기본값을 덮어쓰는 버그가 생길 수 있기 때문입니다.
 4. Node는 `import type`만 지우므로 일반 import가 남고, 런타임에 그 이름의 export가 없다는 오류가 납니다.
 5. 셸이 PID 1이 되어 SIGTERM이 node에 전달되지 않으므로 drain이 일어나지 않고, 유예 시간이 지나면 진행 중인 통화가 강제로 끊깁니다.
-6. 설치 시점에 `pnpm-workspace.yaml`이 없어 lockfile의 overrides 설정과 어긋나므로 `--frozen-lockfile`이 실패합니다. 실패하지 않는 방식으로 고치더라도 `patches/`가 빠지면 Soniox 패치 없이 빌드되어, 오류 없이 말 끝 판단만 다시 느려지는 회귀가 생길 수 있습니다.
+6. 설치 시점에 `pnpm-workspace.yaml`이 없어 lockfile의 overrides 설정과 어긋났기 때문에 `--frozen-lockfile`이 실패했습니다. 이 검사가 없었다면 `patches/` 없이 빌드되어, 오류 없이 말 끝 판단만 다시 느려지는 회귀가 생겼을 수 있습니다.
 
 </details>

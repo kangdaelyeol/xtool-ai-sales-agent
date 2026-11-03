@@ -93,16 +93,19 @@ SDK는 `NODE_ENV`를 보지 않습니다. Dockerfile의 `ENV NODE_ENV=production
 
 이 프로젝트는 `agentName: 'xtool-sales-agent'`를 정했으므로 **명시 디스패치만** 받습니다. 그래서 브라우저 Agent Console에서 테스트할 때 에이전트 이름을 지정해야 합니다([setup-checklist.md 5-3](../setup-checklist.md#5-3-브라우저-agent-console)). 운영에서 이것이 맞는 선택인 이유는, 아무 방에나 영업 상담원이 들어가면 안 되기 때문입니다. 통화를 걸기로 결정한 functions-xtool만 에이전트를 부릅니다.
 
+명시 디스패치를 요청하는 통로는 세 가지입니다.
+
+| 통로 | 방법 | 이 프로젝트 |
+| --- | --- | --- |
+| **접속 토큰의 방 설정** | 토큰의 `roomConfig`에 배정할 에이전트(`RoomAgentDispatch`)를 넣음. 그 토큰으로 누가 방에 들어오면 배정됨 | **웹 테스트가 이 방식** (3-7절) |
+| 배정 API | 서버 SDK의 `AgentDispatchClient.createDispatch(방, 에이전트 이름, { metadata })` | 전화 발신에서 쓸 수 있는 후보 |
+| SIP 배정 규칙 | 걸려 온 전화를 방으로 넣으면서 에이전트 배정 | 대표번호 수신(나중) |
+
+토큰 방식은 **배정 API를 따로 부르지 않아도 된다**는 장점이 있습니다. 토큰을 발급하는 순간 "이 방에는 이 에이전트가 이 고객 정보로 들어간다"가 함께 정해지므로, 방 접속과 에이전트 배정이 어긋날 일이 없습니다.
+
 ### job metadata: 통화별 정보를 실어 보내는 통로
 
-명시 디스패치를 요청할 때 **metadata**(문자열)를 함께 보낼 수 있습니다. LiveKit 서버 SDK로는 이런 모양입니다.
-
-```ts
-// functions-xtool 쪽 (예정, 개념 예시)
-await agentDispatchClient.createDispatch(roomName, 'xtool-sales-agent', {
-  metadata: JSON.stringify({ callId, customerName: '김민수', device: 'F2 울트라', … }),
-});
-```
+디스패치를 요청할 때 **metadata**(문자열)를 함께 보낼 수 있습니다. 웹 테스트에서는 functions-xtool(`createVoiceAgentSession`)이 관리 화면에서 받은 가상 고객 정보를 JSON 문자열로 만들어 토큰의 에이전트 배정 정보에 넣습니다. 배정 API를 쓴다면 같은 문자열을 `createDispatch`의 `metadata`로 넘기면 됩니다.
 
 이 문자열은 서버의 Job 정보에 담겨 워커 → 잡 프로세스로 전달되고, 에이전트 코드에서 `ctx.job.metadata`로 읽힙니다.
 
@@ -146,9 +149,36 @@ export function parseCallContext(metadata: string | undefined): CallContext {
 
 ③에서 가상 고객을 쓰지 않는 이유가 중요합니다. metadata가 있었다는 것은 **실제 통화일 가능성**이 높다는 뜻입니다. 이때 "김민수 고객님"이라고 부르면 실제 고객에게 남의 이름을 부르게 됩니다. 이름을 안 부르는 쪽이 훨씬 안전합니다(1장 원칙 5). 테스트가 이 동작을 고정합니다(`prompt.test.ts`의 "metadata가 없으면 가상 고객, 깨졌으면 빈 정보").
 
-### 개발 워커와 운영 워커 분리
+### 계약이 두 곳에 적혀 있다는 위험
 
-`lk agent dev`는 워커를 `dev-…`라는 무작위 배포 이름으로 등록합니다. 그래서 운영 트래픽이 개발자 노트북으로 가지 않습니다. 반대로, 디스패치 요청에 배포 이름을 지정하지 않으면 개발 워커에 도달하지 않는다는 점도 기억해 둡니다.
+웹 테스트가 생기면서 같은 계약이 **두 레포에 따로** 적히게 됐습니다.
+
+| 위치 | 정의 |
+| --- | --- |
+| 이 레포 [src/call-context.ts](../../src/call-context.ts) | `CallContextSchema` (zod, 받는 쪽 검증) |
+| originalshq `functions-xtool/src/endpoints/voice-agent.ts` | `CallContext` (보내는 쪽 모양, `installment` 값 검사) |
+
+(2026-11-03 갱신) 통화 결과 전송(15-6절)이 생기면서 반대 방향의 계약도 하나 늘었습니다. 에이전트가 보내는 대화록 한 줄(`CallTurn`, [src/call-result.ts](../../src/call-result.ts))은 originalshq의 `voice-call/types.ts`와 모양이 같아야 합니다. 이번에는 이 레포가 **보내는 쪽**입니다.
+
+[web-test.md 3장](../web-test.md#3-에이전트에-넘기는-고객-정보-metadata-계약)은 "한쪽을 바꾸면 다른 쪽도 바꾼다"고 적어 두었습니다. 사람의 기억에 기대는 규칙이라, 한쪽만 바뀌면 에이전트가 깨진 metadata로 보고 "고객님"으로 진행하거나(③), 새 필드를 조용히 무시합니다. 오류가 나지 않으니 늦게 발견됩니다. 줄이는 방법은 다음과 같습니다.
+
+- **보내는 쪽도 검증**: functions-xtool이 이미 `installment` 값을 검사하는 것처럼, 보내기 전에 모양을 확인합니다(지금 하고 있음).
+- **계약 테스트**: 한쪽 레포에 "상대가 보내는 예시 JSON"을 두고, 이 레포의 `parseCallContext`가 그것을 기본값 없이 그대로 읽는지 테스트합니다(14-3절의 생각과 같음).
+- **스키마 공유**: 두 레포가 같은 스키마 파일(예: JSON Schema)을 참조하게 합니다. 레포가 둘이라 설정 비용이 있습니다.
+
+### 개발 워커와 운영 워커 분리: 배포 이름
+
+LiveKit은 같은 에이전트 이름 안에서도 **배포(deployment)** 이름으로 워커 무리를 나눕니다.
+
+| 실행 방법 | 워커가 등록되는 배포 |
+| --- | --- |
+| LiveKit Cloud에 배포한 에이전트 | `production` (또는 따로 만든 `staging` 등) |
+| `lk agent dev` (CLI 2.19.0 이상, 지금 설치된 것은 2.19.3) | **무작위 `dev-…`** |
+| `lk agent dev --deployment production` | `production` |
+
+그리고 **디스패치 요청(토큰·배정 API)에서 배포 이름을 생략하면 `production`으로 갑니다.** 그래서 운영 트래픽이 개발자 노트북으로 새지 않습니다. 반대로 말하면, **배포 이름 없이 만든 토큰은 `lk agent dev`로 띄운 개발 워커에 닿지 않습니다.** `lk agent dev`가 출력하는 Agent Console 링크는 그 `dev-` 배포를 지정하므로 콘솔 테스트는 잘 되지만, 다른 경로로 배정하려면 배포 이름을 맞춰야 합니다.
+
+[web-test.md 6-3](../web-test.md#6-3-에이전트-워커--둘-중-하나)의 A안("내 맥에서 `lk agent dev`")은 functions-xtool이 만든 토큰으로 배정하므로 이 규칙에 걸릴 수 있습니다. 같은 문서의 확인 결과(접속 2.8초 뒤 에이전트 참가)는 어떤 방식으로 띄운 워커였는지 적혀 있지 않습니다. 실제 웹 화면으로 통화가 안 되면 첫 의심 지점이고, `lk agent dev --deployment production`으로 띄우거나 토큰에 배포 이름을 넣는 것이 해결책입니다. LiveKit Cloud에 `production`이 배포된 상태에서 개발 워커도 `production`으로 띄우면 두 워커가 같은 트래픽을 나눠 받는다는 점도 주의합니다. (CLI 도움말과 LiveKit 문서로 확인한 규칙이며, 웹 테스트 A안에서 실제로 어떻게 되는지는 **확인 필요**입니다.)
 
 ---
 
@@ -340,6 +370,32 @@ entry 종료 대기 (최대 15초)
 RoomIO는 고객의 연결이 끊긴 사유가 "클라이언트가 끊음", "방 삭제", "사용자 거절"일 때 **세션을 닫습니다.** 그런데 세션이 닫힌다고 잡이 자동으로 끝나는 것은 아닙니다. SDK 안에서 세션 종료를 `ctx.shutdown()`으로 잇는 코드는 베타 통화 종료 도구에만 있습니다. 그 외에는 서버가 빈 방을 정리할 때까지 잡 프로세스가 남을 수 있습니다.
 
 통화 종료 도구를 붙일 때(9장) 함께 정리할 부분입니다. 선택지는 세션의 `Close` 이벤트에서 `ctx.shutdown()`을 부르거나, RoomIO의 `deleteRoomOnClose: true`를 쓰는 것입니다. 또 SIP 쪽에서 끊긴 사유가 위 세 가지가 아니면 세션이 닫히지 않을 수 있어, 전화 연결 단계에서 실제 사유 값을 확인해야 합니다.
+
+### 에이전트가 먼저 끊을 때 (2026-11-03 추가, 작업 중인 코드)
+
+이 절은 아직 커밋되지 않은 작업 트리의 코드를 기준으로 썼습니다. 끊는 경로가 두 개 생겼습니다.
+
+| 경로 | 언제 | 하는 일 |
+| --- | --- | --- |
+| **`end_call` 도구** ([src/agent.ts](../../src/agent.ts)) | LLM이 "통화를 마칠 때"라고 판단 (마무리 인사, 수신 거부 등, 9-6절) | 도구를 부른 답(작별 인사)이 **끝까지 재생된 뒤** 세션 종료 → `Close` 이벤트 → 방 삭제(기본값) → `ctx.shutdown()` |
+| **`endCall` 함수** ([src/main.ts](../../src/main.ts)) | 코드가 정한 조건 (무응답, 최대 통화 길이, 5-5절의 `call-guard.ts`) | 정해진 작별 인사를 끼어들기 막고 끝까지 재생 → 종료 콜백에 방 삭제 등록 → `ctx.shutdown(사유)` |
+
+```ts
+// src/main.ts (작업 중)
+let ending = false;
+const endCall = async (goodbye: string, reason: string) => {
+  if (ending) return;                     // 두 번 끊지 않기 (무응답과 최대 길이가 겹쳐도 한 번만)
+  ending = true;
+  log().info({ callId: call.callId, reason }, '통화 종료');
+  await session.say(goodbye, { allowInterruptions: false }).waitForPlayout();   // 인사가 다 들린 뒤
+  ctx.addShutdownCallback(async () => {
+    await ctx.deleteRoom().catch((error) => log().warn({ error }, '방을 지우지 못했습니다'));
+  });
+  ctx.shutdown(reason);
+};
+```
+
+두 경로 모두 **"작별 인사가 끝까지 들린 뒤에 끊는다"**는 순서를 지킵니다. 인사 도중에 방을 지우면 고객은 말이 뚝 끊긴 전화를 받게 됩니다. 그리고 **방을 지우는 것**이 핵심입니다. 방이 지워지면 SIP 참가자는 전화가 끊기고, 잡도 `ctx.shutdown()`으로 확실히 끝나므로 앞에서 걱정한 "잡 프로세스가 남는" 문제(16-2절 #12)가 에이전트가 끊는 경우에는 해결됩니다. 방 삭제가 실패해도 경고만 남기고 종료는 계속하는 것(`.catch`)도 실패해도 안전한 쪽으로 가는 설계입니다(1장 원칙 5). 고객이 먼저 끊는 경우는 위의 "고객이 전화를 끊으면" 그대로입니다.
 
 ### 배포할 때: drain
 

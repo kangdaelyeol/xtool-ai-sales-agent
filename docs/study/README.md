@@ -5,6 +5,7 @@
 - **대상:** 개발 경험은 있지만 음성 AI(오디오, STT, TTS, 턴 테이킹, 실시간 전송)는 처음인 사람
 - **분량:** 16개 장, A4로 대략 80~100쪽
 - **기준:** 2026-11-03의 이 레포 코드와 `@livekit/agents` 1.9.5. SDK 내부 설명은 설치된 패키지의 소스를 읽어 확인했고, 코드 위치를 함께 적었습니다.
+- **변경 이력:** 레포가 바뀔 때마다 따라 고치고 [CHANGELOG.md](CHANGELOG.md)에 남깁니다. 마지막 반영 기준과 다음 갱신 절차도 거기에 있습니다.
 
 ---
 
@@ -21,7 +22,7 @@
 | 장 | 제목 | 내용 |
 | --- | --- | --- |
 | 2 | [소리를 데이터로](02-audio.md) | 샘플링과 나이퀴스트, PCM, 프레임, 코덱(G.711·Opus), 지터, 노이즈·에코, 스펙트로그램 |
-| 3 | [소리를 실어 나르기](03-transport.md) | UDP·RTP, WebRTC(ICE·SDP), SFU와 LiveKit의 Room·Participant·Track, 전화망과 SIP, LiveKit SIP |
+| 3 | [소리를 실어 나르기](03-transport.md) | UDP·RTP, WebRTC(ICE·SDP), SFU와 LiveKit의 Room·Participant·Track, 전화망과 SIP, LiveKit SIP, 접속 토큰과 브라우저 클라이언트(웹 테스트) |
 
 ### 3부. 실행 환경
 
@@ -53,8 +54,12 @@
 | 장 | 제목 | 내용 |
 | --- | --- | --- |
 | 14 | [테스트와 평가](14-testing.md) | 층별 검증 전략, 단위 테스트, 가짜 서버 계약 테스트, 디버거, 시나리오 시뮬레이션(LLM 판정), CI |
-| 15 | [설정·빌드·배포·운영](15-config-deploy-ops.md) | 환경변수와 팩토리, Node 24의 TS 직접 실행, pnpm 설정과 패치, Docker(**설치 단계 문제 재현**), GKE, 관측, 장애 설계, 보안·법무 |
-| 16 | [용어집과 다음 단계](16-glossary-and-next.md) | 용어집, **코드에서 발견한 사항 15개**, 참고 자료, 실습 과제 |
+| 15 | [설정·빌드·배포·운영](15-config-deploy-ops.md) | 환경변수와 팩토리, Node 24의 TS 직접 실행, pnpm 설정과 패치, Docker(설치 단계 문제와 수정 사례), LiveKit Cloud vs GKE, 관측, 장애 설계, 보안·법무 |
+| 16 | [용어집과 다음 단계](16-glossary-and-next.md) | 용어집, **코드에서 발견한 사항**(상태별로 갱신), 참고 자료, 실습 과제 |
+
+| 부록 | 내용 |
+| --- | --- |
+| [CHANGELOG.md](CHANGELOG.md) | 학습서 변경 이력, 기준 커밋·버전, 갱신 절차 |
 
 ---
 
@@ -90,3 +95,4 @@
 | [poc-results.md](../poc-results.md) | 측정 기록 |
 | [setup-checklist.md](../setup-checklist.md) | 직접 해야 할 세팅 순서 |
 | [poc-setup.md](../poc-setup.md), [telephony-setup.md](../telephony-setup.md) | 서비스 가입·설치, 전화 회선 실무 |
+| [web-test.md](../web-test.md) | 관리 화면 웹 테스트의 API 명세와 배포 순서 |

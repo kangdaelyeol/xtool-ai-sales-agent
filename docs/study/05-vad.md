@@ -150,7 +150,43 @@ LiveKit은 이 문제를 VAD 혼자 풀게 하지 않습니다. **VAD는 짧게(
 | `listening` | VAD 말 끝 |
 | `away` | 사용자와 에이전트가 모두 조용한 상태로 15초가 지나면 (`userAwayTimeout` 기본값) |
 
-`away`는 "여보세요?" 재촉이나 무응답 종료([tech-stack.md 7장](../tech-stack.md#7-우리가-직접-만들-기능-목록)의 "무응답 재촉 10초, 종료 30초")를 만들 때 쓸 수 있는 신호입니다. 아직 이 프로젝트에는 없습니다.
+`away`는 "여보세요?" 재촉이나 무응답 종료([tech-stack.md 7장](../tech-stack.md#7-우리가-직접-만들-기능-목록)의 "무응답 재촉 10초, 종료 30초")를 만들 때 쓰는 신호입니다.
+
+### away를 쓰는 무응답 안전장치 (2026-11-03 추가, 작업 중인 코드)
+
+작업 중인 `src/call-guard.ts`가 이 신호로 무응답과 통화 길이를 지킵니다.
+
+| 설정 | 값 | 동작 |
+| --- | --- | --- |
+| `userAwayTimeout` (세션 옵션) | **10** | 고객과 AI가 모두 10초 조용하면 `away`. Node SDK에서도 이 값은 **초 단위**입니다(내부에서 ×1000). 같은 SDK의 `minDelay` 같은 값은 ms라 헷갈리기 쉬움 |
+| "여보세요?" 뒤 무응답 | 10초 | "통화가 어려우신 것 같아요…" 하고 끊음 |
+| 최대 통화 길이 | 8분 | "오늘 말씀해 주신 내용은…" 하고 끊음 (판정 통화 목표는 2~4분) |
+
+```ts
+session.on(voice.AgentSessionEventTypes.UserStateChanged, (ev) => {
+  if (ev.newState === 'speaking') { clearTimeout(noResponseTimer); noResponseTimer = undefined; return; }
+  if (ev.newState !== 'away' || noResponseTimer) return;
+  const prompt = session.say(STILL_THERE, { allowInterruptions: true });   // "여보세요? 제 목소리 잘 들리세요?"
+  void prompt.waitForPlayout().then(() => {
+    noResponseTimer = setTimeout(() => void endCall(NO_RESPONSE_BYE, 'no_response'), NO_RESPONSE_END_MS);
+  });
+});
+```
+
+설계에서 볼 점이 두 가지 있습니다.
+
+- **상태는 바뀔 때만 이벤트가 옵니다.** `away`는 고객이 다시 말할 때까지 이어지므로 "away 두 번째"라는 이벤트는 오지 않습니다. 그래서 재촉 뒤의 종료는 직접 타이머로 셉니다(파일 주석에 그 이유가 적혀 있음). 이벤트 기반 코드에서 "아무 일도 안 일어남"을 감지하려면 타이머가 필요하다는 일반 원칙입니다.
+- **경쟁 조건 하나 (2026-11-03 고침).** "여보세요?"는 끼어들 수 있는 발화라, 고객이 그 도중에 "네, 들려요"라고 답하면 순서가 이렇게 됩니다: 고객 `speaking`(이때는 지울 타이머가 아직 없음) → "여보세요?" 중단 → `waitForPlayout()`이 끝나며 **타이머가 그제야 시작**. 고객은 이미 대답했는데 무응답 타이머가 돌고, 이후 10초 안에 고객이 새로 말을 시작하지 않으면(예: AI가 길게 답하는 동안) 통화가 끊깁니다. 이 순서를 그대로 재현하는 테스트(`src/call-guard.test.ts`, 14-3절)를 먼저 써서 실패를 확인한 뒤, 타이머를 걸기 직전에 고객이 아직 `away`인지 확인하도록 고쳤습니다.
+
+```ts
+void prompt.waitForPlayout().then(() => {
+  // "여보세요?" 도중에 대답했으면 재생은 끼어들기로 끝났고 고객은 이미 away가 아닙니다.
+  if (session.userState !== 'away') return;
+  noResponseTimer = setTimeout(() => void endCall(NO_RESPONSE_BYE, 'no_response'), NO_RESPONSE_END_MS);
+});
+```
+
+비동기 코드에서 **"기다리는 동안 세상이 바뀌었을 수 있다"**는 것은 흔한 버그의 원인입니다. `await`나 `.then` 뒤에서 무언가를 하기 전에, 그 일을 하기로 한 전제(여기서는 "고객이 아직 조용하다")가 아직 참인지 다시 확인하는 습관이 필요합니다.
 
 ---
 
