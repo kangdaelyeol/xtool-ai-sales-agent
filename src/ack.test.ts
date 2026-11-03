@@ -1,5 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { stripLeadingAck, withoutLeadingAck } from './ack.ts';
+import { shouldAck, stripLeadingAck, withoutLeadingAck } from './ack.ts';
+
+describe('shouldAck', () => {
+  it('수신 거부·불만·사람 요청에는 즉시 반응을 하지 않는다', () => {
+    for (const text of [
+      '그냥 전화하지 마세요.',
+      '다시는 연락하지 마세요',
+      '필요 없어요',
+      '아 짜증나네',
+      'AI 말고 사람이랑 통화하고 싶어요.',
+      '상담사 연결해 주세요',
+    ]) {
+      expect(shouldAck(text), text).toBe(false);
+    }
+  });
+
+  it('보통 대답에는 즉시 반응을 한다', () => {
+    for (const text of ['네, 괜찮아요.', '부업으로 가죽 소품 만들려고요.', '전화 상담도 되나요?']) {
+      expect(shouldAck(text), text).toBe(true);
+    }
+  });
+});
 
 async function collect(chunks: string[]): Promise<string> {
   async function* source() {

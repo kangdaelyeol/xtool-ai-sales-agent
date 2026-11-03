@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import { createAgent } from './agent.ts';
 import { parseCallContext } from './call-context.ts';
+import { USER_AWAY_TIMEOUT_SEC, guardCall } from './call-guard.ts';
 import { loadConfig } from './config.ts';
 import { KEYTERMS } from './glossary.ts';
 import { createLLM, createSTT, createTTS } from './models/index.ts';
@@ -29,6 +30,9 @@ export default defineAgent({
 
       // VAD는 넘기지 않으면 번들된 Silero(로컬 실행)가 자동으로 붙습니다.
 
+      // 이만큼 조용하면 고객 상태가 away가 되고, call-guard.ts가 "여보세요?"를 합니다.
+      userAwayTimeout: USER_AWAY_TIMEOUT_SEC,
+
       // Soniox는 자체 context.terms로 넣으므로 LiveKit Inference STT일 때만 씁니다.
       ...(config.stt.provider === 'livekit'
         ? { keytermsOptions: { keyterms: [...KEYTERMS] } }
@@ -48,7 +52,9 @@ export default defineAgent({
         preemptiveGeneration: { enabled: true },
         // 끼어들기로 인정하는 최소 길이 (기본 0.5초). "아니요", "잠깐만요"처럼 짧은 말도 잡도록 줄입니다.
         // 맞장구("네", "음")는 끼어들기 구분 모델이 거릅니다.
-        interruption: { minDuration: 300 },
+        // 끼어들기를 막은 말(AI·녹음 고지) 중에 고객이 한 말은 버리지 않고 고지가 끝난 뒤 처리합니다.
+        // 기본값(버림)이면 고지 중의 "전화하지 마세요"를 못 듣습니다 (2026-11-03 시뮬레이션에서 발견).
+        interruption: { minDuration: 300, discardAudioIfUninterruptible: false },
       },
     });
 
@@ -75,6 +81,21 @@ export default defineAgent({
     });
 
     await ctx.connect();
+
+    // 정해진 멘트를 끝까지 말한 뒤 방을 지워 통화를 끝냅니다(전화면 끊김). AI가 스스로 끊을 때는
+    // end_call 도구(agent.ts)가 같은 일을 합니다.
+    let ending = false;
+    const endCall = async (goodbye: string, reason: string) => {
+      if (ending) return;
+      ending = true;
+      log().info({ callId: call.callId, reason }, '통화 종료');
+      await session.say(goodbye, { allowInterruptions: false }).waitForPlayout();
+      ctx.addShutdownCallback(async () => {
+        await ctx.deleteRoom().catch((error) => log().warn({ error }, '방을 지우지 못했습니다'));
+      });
+      ctx.shutdown(reason);
+    };
+    guardCall(session, endCall);
 
     // AI·녹음 고지는 끝까지 들리도록 끼어들기를 막고, 이어지는 질문은 바로 답할 수 있게 엽니다.
     session.say(openingNotice(call), { allowInterruptions: false });
