@@ -86,6 +86,25 @@ metadata가 깨져 있으면 에이전트는 가상 고객이 아니라 빈 정�
 - LiveKit 라이브러리는 `/log` 전용 조각에만 들어갑니다(지연 로딩). **일반 방문자 페이지 번들에는 들어가지 않습니다**(빌드 결과로 확인).
 - 마이크 권한이 필요합니다. 배포 주소는 HTTPS라 문제없고, 로컬은 `localhost`에서 됩니다.
 
+## 4-1. 통화 결과 (저장·판정·조회)
+
+```
+[에이전트] 통화가 끝나면(shutdown 콜백) ─X-Voice-Agent-Secret─▶ submitVoiceCallResult ─▶ Firestore calls/{callId}
+                                                                            │ (문서 생성 트리거)
+                                                         extractVoiceCallJudgment: Opus 5.5로 요약·판정 칸 추출
+[웹 "AI 상담원" 탭] 통화 끝 → getVoiceCall?callId= 을 3초마다 (최대 2분) → 요약·판정·지연·대화록 표시
+```
+
+| 함수 | 종류 | 인증 | 하는 일 |
+|---|---|---|---|
+| `submitVoiceCallResult` | POST | 헤더 `X-Voice-Agent-Secret` = 시크릿 `VOICE_AGENT_SECRET` | 대화록·고객 정보·종료 사유·구간별 지연을 `calls/{callId}`에 저장. 같은 통화를 다시 보내면 덮어쓰지 않음 |
+| `extractVoiceCallJudgment` | Firestore 트리거 (`calls/{callId}` 생성) | — | `claude-opus-5-5`(effort low, 거절 시 서버 측 대체)로 요약과 판정 칸(README 6-2)을 뽑아 `result`에 붙임. 실패하면 `status: analysis_failed` |
+| `getVoiceCall` | GET `?callId=` | 관리자 | 통화 기록 한 건 |
+
+- 에이전트는 `VOICE_RESULT_URL`·`VOICE_AGENT_SECRET`이 있을 때만 보냅니다. 없거나 `callId`가 없으면(콘솔·디버거) 건너뜁니다.
+- 판정 칸: 통화 결과, 관심도(근거 포함), 관심 기기, 용도, 다룰 소재, 예산대, 결제 방식, 도입 시기, 방문체험(지역·일시), 결정권, 연락 희망 시각, 사람 확인 필요. 값 이름은 README 6-2 표와 같고, 확인 못 한 칸은 "미확인"입니다.
+- 판정 비용은 통화당 약 20~30원(3천 토큰 기준)입니다. 더 낮추려면 `functions-xtool/src/voice-call/analyze.ts`의 `ANALYSIS_MODEL`을 Sonnet 5.5로 바꿉니다.
+
 ## 5. 확인한 것 (2026-11-03)
 
 | 확인 | 결과 |
@@ -95,6 +114,8 @@ metadata가 깨져 있으면 에이전트는 가상 고객이 아니라 빈 정�
 | 토큰 발급 → 방 접속 → 에이전트 배정 | 접속 2.8초 뒤 에이전트 참가 (Node 클라이언트로 같은 방식의 토큰 사용) |
 | metadata 전달 | 첫 멘트가 보낸 정보대로 나옴: "안녕하세요, 이영희 고객님. … 메탈팹 상담 신청해 주셔서 …" |
 | 배포 이미지 설치 단계 | Dockerfile과 같은 파일만 둔 빈 폴더에서 `pnpm install --frozen-lockfile` 통과, Soniox 패치 적용 확인 |
+| 통화 결과 전송 | `callId`가 든 토큰으로 접속했다 나가자 에이전트가 비밀키·고객 정보·종료 사유(`participant_disconnected`)·대화록을 보냄 (로컬 가짜 서버로 확인) |
+| 판정 추출 | 실제 API로 판정 대화 1건: 결과 "체험 예약", 관심도 "높음", 예산·할부·시기·체험 일시가 대화대로 채워짐 (8.5초) |
 
 **아직 못 한 것:** 배포된 함수와 실제 브라우저로 통화(배포 후 6장 순서로 확인), Docker 이미지 빌드 자체(이 맥에 Docker 없음, `lk agent create`가 원격에서 빌드).
 
@@ -107,8 +128,13 @@ cd ~/projects/originalshq
 firebase functions:secrets:set LIVEKIT_URL         # wss://xtool-ai-agent-cloud-p6d4uekt.livekit.cloud
 firebase functions:secrets:set LIVEKIT_API_KEY     # 에이전트 레포 .env.local의 값
 firebase functions:secrets:set LIVEKIT_API_SECRET
-firebase deploy --only functions:xtool:createVoiceAgentSession
+firebase functions:secrets:set VOICE_AGENT_SECRET  # 새로 만든 긴 무작위 값 (예: openssl rand -hex 32)
+firebase functions:secrets:set ANTHROPIC_API_KEY   # 판정 추출용
+firebase deploy --only functions:xtool:createVoiceAgentSession,functions:xtool:submitVoiceCallResult,functions:xtool:getVoiceCall,functions:xtool:extractVoiceCallJudgment
 ```
+
+- 에이전트 레포 `.env.local`에도 같은 `VOICE_AGENT_SECRET`과 `VOICE_RESULT_URL`(`.env.example`에 주소가 적혀 있음)을 넣습니다.
+- `extractVoiceCallJudgment`는 Firestore(`xtool-read`) 트리거라 처음 배포할 때 Eventarc 권한을 묻는 경우가 있습니다. 안내대로 허용합니다.
 
 ### 6-2. 웹
 
@@ -118,15 +144,18 @@ firebase deploy --only functions:xtool:createVoiceAgentSession
 
 | 방식 | 명령 | 쓸 때 |
 |---|---|---|
-| **A. 내 맥에서 실행** (처음 테스트에 추천) | 에이전트 레포에서 `lk agent dev` | 켜 둔 동안만 통화됩니다. 코드를 바로 고쳐 보며 시험할 때 |
+| **A. 내 맥에서 실행** (처음 테스트에 추천) | 에이전트 레포에서 `lk agent dev --deployment production` | 켜 둔 동안만 통화됩니다. 코드를 바로 고쳐 보며 시험할 때 |
 | B. LiveKit Cloud에 배포 | 아래 | 맥을 꺼도 언제든 통화되게 할 때 |
+
+- A안에 `--deployment production`을 붙이는 이유: LiveKit CLI 2.19.0 이상의 `lk agent dev`는 운영 트래픽과 섞이지 않게 워커를 무작위 `dev-…` 배포로 등록합니다. 그런데 `createVoiceAgentSession`이 만드는 토큰은 배포 이름을 지정하지 않으므로 `production`으로 배정됩니다. 붙이지 않으면 에이전트가 방에 들어오지 않을 수 있습니다(CLI 도움말·LiveKit 문서 "Non-production deployments" 기준, 2026-11-03).
+- B안을 배포한 뒤에 A안을 같이 켜 두면 맥과 LiveKit Cloud가 같은 `production` 통화를 나눠 받습니다. 둘 중 하나만 켭니다.
 
 B안:
 
 ```bash
 cd ~/projects/xtool-ai-sales-agent
 # 부품 키만 담은 파일 (LIVEKIT_* 는 LiveKit Cloud가 넣어 주므로 빼고, 커밋하지 않음)
-grep -E '^(ANTHROPIC_API_KEY|ELEVEN_API_KEY|SONIOX_API_KEY|TTS_VOICE)=' .env.local > .env.agent-secrets
+grep -E '^(ANTHROPIC_API_KEY|ELEVEN_API_KEY|SONIOX_API_KEY|TTS_VOICE|VOICE_RESULT_URL|VOICE_AGENT_SECRET)=' .env.local > .env.agent-secrets
 lk agent create --secrets-file .env.agent-secrets
 rm .env.agent-secrets
 ```
