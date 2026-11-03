@@ -34,3 +34,20 @@ describe('buildInstructions', () => {
     expect(b.startsWith(sharedPrefix)).toBe(true);
   });
 });
+
+describe('knowledge', () => {
+  it('지식이 있으면 고객 정보 앞에 넣고, 없으면 칸을 만들지 않는다', () => {
+    const withKnowledge = buildInstructions(SAMPLE_CALL, '## 방문체험\n- 매장 위치: 서울');
+    expect(withKnowledge).toContain('# 회사·기기 정보');
+    expect(withKnowledge.indexOf('매장 위치')).toBeLessThan(withKnowledge.indexOf('# 고객 정보'));
+    expect(buildInstructions(SAMPLE_CALL)).not.toContain('# 회사·기기 정보');
+  });
+
+  it('작성 안내 주석만 있는 템플릿은 빈 지식이다', async () => {
+    const { cleanKnowledge, loadKnowledge } = await import('./knowledge.ts');
+    expect(cleanKnowledge('<!-- 안내 -->\n\n## 기기\n- F2 울트라: 각인')).toBe(
+      '## 기기\n- F2 울트라: 각인',
+    );
+    expect(loadKnowledge()).toBe('');
+  });
+});

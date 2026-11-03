@@ -9,6 +9,7 @@ import { USER_AWAY_TIMEOUT_SEC, guardCall } from './call-guard.ts';
 import { addLatency, emptyLatency, submitCallResult, transcriptOf } from './call-result.ts';
 import { loadConfig } from './config.ts';
 import { KEYTERMS } from './glossary.ts';
+import { loadKnowledge } from './knowledge.ts';
 import { createLLM, createSTT, createTTS } from './models/index.ts';
 import { FinalizingSonioxSTT } from './models/soniox.ts';
 import { OPENING_QUESTION, openingNotice } from './prompt.ts';
@@ -18,6 +19,9 @@ import { pronunciationTransform } from './pronunciation.ts';
 // Make sure to set LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET
 // when running locally or self-hosting your agent server.
 dotenv.config({ path: '.env.local' });
+
+// 상담팀이 채우는 회사·기기 정보. 워커가 뜰 때 한 번 읽습니다(바꾸면 워커를 다시 시작).
+const knowledge = loadKnowledge();
 
 export default defineAgent({
   entry: async (ctx) => {
@@ -97,7 +101,7 @@ export default defineAgent({
     });
 
     await session.start({
-      agent: createAgent({ call, llm: createLLM(config.llm), ackAudio }),
+      agent: createAgent({ call, llm: createLLM(config.llm), ackAudio, knowledge }),
       room: ctx.room,
       inputOptions: {
         // ai-coustics QUAIL audio enhancement for noise cancellation

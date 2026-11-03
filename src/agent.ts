@@ -12,15 +12,18 @@ export function createAgent({
   call,
   llm,
   ackAudio,
+  knowledge,
 }: {
   call: CallContext;
+  /** 회사·기기 정보 (knowledge/xtool.md). */
+  knowledge?: string;
   llm: llm.LLM;
   /** 미리 합성한 즉시 반응 음성. 없으면 그때그때 합성합니다. */
   ackAudio?: AckAudioCache;
 }) {
   let turn = 0;
   return Agent.create({
-    instructions: buildInstructions(call),
+    instructions: buildInstructions(call, knowledge),
     llm,
     tools: [
       // 작별 인사를 말한 답이 끝까지 재생된 뒤 세션을 닫고 방을 지웁니다(전화면 끊김).

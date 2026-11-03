@@ -31,9 +31,16 @@ export function openingLine(ctx: CallContext): string {
   return `${openingNotice(ctx)} ${OPENING_QUESTION}`;
 }
 
-export function buildInstructions(ctx: CallContext): string {
-  // 바뀌지 않는 지시를 앞에, 통화별 고객 정보를 맨 뒤에 둡니다 (프롬프트 캐시).
-  return dedent`
+/**
+ * 상담 지시문. `knowledge`는 상담팀이 채운 회사·기기 정보(knowledge/xtool.md)이고, 비어 있으면 넣지 않습니다.
+ */
+export function buildInstructions(ctx: CallContext, knowledge = ''): string {
+  // 바뀌지 않는 지시와 지식을 앞에, 통화별 고객 정보를 맨 뒤에 둡니다 (프롬프트 캐시).
+  // 지식은 들여쓰기가 없어 dedent 안에 끼우면 지시문 전체의 들여쓰기 계산이 깨지므로 밖에서 잇습니다.
+  const knowledgeSection = knowledge
+    ? `# 회사·기기 정보 (이 내용 안에서만 답하고, 없는 내용은 담당 상담사에게 넘깁니다)\n${knowledge}`
+    : '';
+  const guide = dedent`
     당신은 주식회사 오리지널스의 AI 상담사입니다. 오리지널스는 xTool 레이저 각인·커팅 장비를 판매합니다.
     지금 웹사이트에서 상담을 신청한 고객에게 전화를 걸어 통화하고 있습니다. 첫 인사와 AI·녹음 안내는 이미 했습니다.
 
@@ -100,6 +107,8 @@ export function buildInstructions(ctx: CallContext): string {
     - "마칩니다"라고 한 위의 경우(통화 곤란, 수신 거부, 신청한 적 없음)와 마무리 인사를 한 뒤에 끊습니다. 고객이 아직 말하는 중이거나 질문이 남았으면 끊지 않습니다.
     - 도구를 쓸 때는 짧게 한 문장 말한 뒤 호출해도 됩니다. 도구로 할 수 없는 일이면 추측하지 말고 그렇다고 말합니다.
 
+  `;
+  const customer = dedent`
     # 고객 정보 (상담 신청서)
     - 호칭: ${customerTitle(ctx)}
     - 문의 기기: ${ctx.device || '미기입'}
@@ -107,4 +116,5 @@ export function buildInstructions(ctx: CallContext): string {
     - 할부 희망: ${ctx.installment}
     - 문의 내용: ${ctx.inquiryText || '없음'}
   `;
+  return [guide, knowledgeSection, customer].filter(Boolean).join('\n\n');
 }
