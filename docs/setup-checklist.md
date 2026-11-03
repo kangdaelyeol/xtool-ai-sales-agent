@@ -263,7 +263,7 @@ functions-xtool이 에이전트를 배정할 때 job metadata에 아래 JSON을 
 
 | 항목 | 내용 |
 |---|---|
-| GPT-6 Luna 모델 id | SDK 1.9.5의 LiveKit Inference 모델 목록에는 `openai/gpt-5.6-luna`만 있습니다. 기본값 `openai/gpt-6-luna`가 LiveKit Cloud 모델 목록에 있는지 확인하고, 다르면 `LLM_MODEL`로 바꿉니다 |
+| GPT-6 Luna 모델 id | SDK 1.9.5 타입 목록에는 `openai/gpt-5.6-luna`만 있지만, `openai/gpt-6-luna`도 LiveKit Inference에서 정상 동작함을 확인했습니다(2026-11-03) |
 | 노이즈 제거 | 스타터 기본값인 ai-coustics QUAIL을 그대로 씁니다 |
 | 끼어들기 구분 모델 | LiveKit Cloud와 dev 모드에서는 기본으로 켜집니다. 직접 운영(self-hosted)하면 `src/main.ts`의 `interruption` 줄을 켭니다 |
 | ElevenLabs `language: 'ko'` | v4 Turbo는 Text-to-Dialogue API를 거쳐서, 언어 지정이 무시될 수 있습니다. 한국어 음성을 고르면 문제없습니다 |

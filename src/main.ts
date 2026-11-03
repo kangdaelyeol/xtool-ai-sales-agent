@@ -8,7 +8,7 @@ import { loadConfig } from './config.ts';
 import { KEYTERMS } from './glossary.ts';
 import { createLLM, createSTT, createTTS } from './models/index.ts';
 import { FinalizingSonioxSTT } from './models/soniox.ts';
-import { openingLine } from './prompt.ts';
+import { OPENING_QUESTION, openingNotice } from './prompt.ts';
 import { pronunciationTransform } from './pronunciation.ts';
 
 // Load environment variables from a local file.
@@ -42,10 +42,13 @@ export default defineAgent({
         // See more at https://docs.livekit.io/agents/logic/turns/turn-detector/
         turnDetection: new inference.TurnDetector(),
         // Adaptive interruptions tell a real interruption from a backchannel like "네" or "음".
-        // On by default on LiveKit Cloud and in dev mode; uncomment for self-hosted usage.
-        // interruption: { mode: 'adaptive' },
+        // On by default on LiveKit Cloud and in dev mode; for self-hosted usage add mode: 'adaptive'
+        // to the interruption options below.
         // Allow the LLM to generate a response while waiting for the end of turn
         preemptiveGeneration: { enabled: true },
+        // 끼어들기로 인정하는 최소 길이 (기본 0.5초). "아니요", "잠깐만요"처럼 짧은 말도 잡도록 줄입니다.
+        // 맞장구("네", "음")는 끼어들기 구분 모델이 거릅니다.
+        interruption: { minDuration: 300 },
       },
     });
 
@@ -73,8 +76,9 @@ export default defineAgent({
 
     await ctx.connect();
 
-    // AI·녹음 고지가 들어 있어 끝까지 들리도록 끼어들기를 막습니다.
-    session.say(openingLine(call), { allowInterruptions: false });
+    // AI·녹음 고지는 끝까지 들리도록 끼어들기를 막고, 이어지는 질문은 바로 답할 수 있게 엽니다.
+    session.say(openingNotice(call), { allowInterruptions: false });
+    session.say(OPENING_QUESTION, { allowInterruptions: true });
   },
 });
 

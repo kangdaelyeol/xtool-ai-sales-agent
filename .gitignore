@@ -224,3 +224,4 @@ ehthumbs.db
 
 # VS Code Local History 확장: 저장할 때마다 .env 사본을 남김 (키 포함)
 .history/
+.env.agent-secrets

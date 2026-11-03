@@ -28,7 +28,10 @@ FROM base AS build
 WORKDIR /app
 
 # Copy just the dependency files first, for more efficient layer caching
-COPY package.json pnpm-lock.yaml ./
+# pnpm-workspace.yaml(설치 스크립트 허용·의존성 고정·패치 등록)과 patches/(Soniox 패치)가
+# 없으면 설치가 멈추거나 패치가 빠집니다.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY patches ./patches
 
 # Install dependencies using pnpm
 # --frozen-lockfile ensures we use exact versions from pnpm-lock.yaml for reproducible builds

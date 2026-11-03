@@ -19,7 +19,9 @@
 | 문서                                                             | 내용                                                                             |
 | ---------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | [docs/setup-checklist.md](docs/setup-checklist.md)               | **지금까지 한 일과 직접 해야 할 세팅 (여기서 시작)**                             |
+| [docs/web-test.md](docs/web-test.md)                             | 관리 화면(/log)에서 브라우저로 통화하는 웹 테스트: 세션 API 명세, 배포 순서      |
 | [docs/poc-results.md](docs/poc-results.md)                       | PoC 측정 기록 (지연, STT 인식, 음성 후보)                                        |
+| [docs/study/](docs/study/README.md)                              | 학습서: 이 레포로 배우는 음성 AI 에이전트의 개념·이론·기법 (16장)                |
 | [docs/tech-stack.md](docs/tech-stack.md)                         | 업체 기술 분석, 부품 선택, 아키텍처, 개발 단계                                   |
 | [docs/poc-setup.md](docs/poc-setup.md)                           | 브라우저 PoC용 구독 서비스와 설치 순서                                           |
 | [docs/telephony-setup.md](docs/telephony-setup.md)               | 국내 SIP 회선 요구 사항과 Asterisk 세팅 (프로덕션 단계)                          |
