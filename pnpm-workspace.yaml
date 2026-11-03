@@ -1,0 +1,12 @@
+allowBuilds:
+  '@livekit/blingfire': false
+  '@livekit/local-inference': true
+  protobufjs: true
+  sharp: true
+
+# @livekit/agents는 ^1.9.0을 받지만 OpenTelemetry SDK 2.x는 1.10 미만을 요구함
+overrides:
+  '@opentelemetry/api': ~1.9.0
+
+patchedDependencies:
+  '@livekit/agents-plugin-soniox@1.9.5': patches/@livekit__agents-plugin-soniox@1.9.5.patch
