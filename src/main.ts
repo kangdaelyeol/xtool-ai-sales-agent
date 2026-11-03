@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createAgent } from './agent.ts';
 import { parseCallContext } from './call-context.ts';
 import { USER_AWAY_TIMEOUT_SEC, guardCall } from './call-guard.ts';
+import { addLatency, emptyLatency, submitCallResult, transcriptOf } from './call-result.ts';
 import { loadConfig } from './config.ts';
 import { KEYTERMS } from './glossary.ts';
 import { createLLM, createSTT, createTTS } from './models/index.ts';
@@ -66,9 +67,29 @@ export default defineAgent({
     }
 
     // 구간별 지연(STT 확정, LLM 첫 토큰, TTS 첫 음성, 말 끝 판단)을 통화마다 로그에 남깁니다.
-    session.on(voice.AgentSessionEventTypes.MetricsCollected, (ev) =>
-      metrics.logMetrics(ev.metrics),
-    );
+    // 통화 결과에도 실어 보내 Firestore에 남깁니다(통화별 병목 확인).
+    const latency = emptyLatency();
+    session.on(voice.AgentSessionEventTypes.MetricsCollected, (ev) => {
+      metrics.logMetrics(ev.metrics);
+      addLatency(latency, ev.metrics);
+    });
+
+    // 통화가 끝나면 대화록을 functions-xtool에 보냅니다(요약·판정은 거기서). 끝난 이유는 종료 경로마다 남깁니다.
+    const startedAt = Date.now();
+    let endReason = 'disconnected';
+    session.on(voice.AgentSessionEventTypes.Close, (ev) => {
+      if (endReason === 'disconnected' && ev.reason) endReason = String(ev.reason);
+    });
+    ctx.addShutdownCallback(async () => {
+      await submitCallResult({
+        call,
+        startedAt,
+        endedAt: Date.now(),
+        endReason,
+        transcript: transcriptOf(session.history),
+        latency,
+      }).catch((error) => log().error({ error }, '통화 결과를 보내지 못했습니다'));
+    });
 
     await session.start({
       agent: createAgent({ call, llm: createLLM(config.llm) }),
@@ -88,6 +109,7 @@ export default defineAgent({
     const endCall = async (goodbye: string, reason: string) => {
       if (ending) return;
       ending = true;
+      endReason = reason;
       log().info({ callId: call.callId, reason }, '통화 종료');
       await session.say(goodbye, { allowInterruptions: false }).waitForPlayout();
       ctx.addShutdownCallback(async () => {
