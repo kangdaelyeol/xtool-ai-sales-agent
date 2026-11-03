@@ -1,4 +1,5 @@
 import { Agent, beta, type llm } from '@livekit/agents';
+import type { AckAudioCache } from './ack-audio.ts';
 import { ACKS, shouldAck, withoutLeadingAck } from './ack.ts';
 import type { CallContext } from './call-context.ts';
 import { buildInstructions } from './prompt.ts';
@@ -7,7 +8,16 @@ import { correctTranscript } from './transcript.ts';
 // 통화 중 도구. 방문체험 빈 시간 조회, 수신 거부 등록은 functions-xtool API가 생기면 붙입니다.
 // 생각 모드를 끈 채 도구를 쓰므로 지시문(prompt.ts "통화 끝내기")에 도구를 말로 흘리지 않게 하는
 // 문장을 넣어 두었습니다.
-export function createAgent({ call, llm }: { call: CallContext; llm: llm.LLM }) {
+export function createAgent({
+  call,
+  llm,
+  ackAudio,
+}: {
+  call: CallContext;
+  llm: llm.LLM;
+  /** 미리 합성한 즉시 반응 음성. 없으면 그때그때 합성합니다. */
+  ackAudio?: AckAudioCache;
+}) {
   let turn = 0;
   return Agent.create({
     instructions: buildInstructions(call),
@@ -30,7 +40,9 @@ export function createAgent({ call, llm }: { call: CallContext; llm: llm.LLM }) 
       // 프롬프트 캐시도 유지됩니다. 수신 거부·불만·사람 요청에는 하지 않습니다.
       if (!shouldAck(newMessage.textContent ?? '')) return;
       const ack = ACKS[turn++ % ACKS.length]!;
+      const audio = ackAudio?.audio(ack);
       ctx.agent.session.say(ack, {
+        ...(audio ? { audio } : {}),
         addToChatCtx: false,
         allowInterruptions: true,
       });

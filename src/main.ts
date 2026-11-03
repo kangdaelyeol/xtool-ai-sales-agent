@@ -2,6 +2,7 @@ import { ServerOptions, cli, defineAgent, inference, log, metrics, voice } from 
 import { EnhancerModel, audioEnhancement } from '@livekit/plugins-ai-coustics';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'node:url';
+import { AckAudioCache } from './ack-audio.ts';
 import { createAgent } from './agent.ts';
 import { parseCallContext } from './call-context.ts';
 import { USER_AWAY_TIMEOUT_SEC, guardCall } from './call-guard.ts';
@@ -25,9 +26,13 @@ export default defineAgent({
     log().info({ config, callId: call.callId }, '통화 시작');
 
     const stt = createSTT(config.stt);
+    const tts = createTTS(config.tts);
+    // 즉시 반응 음성을 첫 멘트와 함께 미리 만들어 둡니다(약 1초). 그 전에 필요하면 평소처럼 합성합니다.
+    const ackAudio = new AckAudioCache();
+    void ackAudio.preload(tts);
     const session = new voice.AgentSession({
       stt,
-      tts: createTTS(config.tts),
+      tts,
 
       // VAD는 넘기지 않으면 번들된 Silero(로컬 실행)가 자동으로 붙습니다.
 
@@ -92,7 +97,7 @@ export default defineAgent({
     });
 
     await session.start({
-      agent: createAgent({ call, llm: createLLM(config.llm) }),
+      agent: createAgent({ call, llm: createLLM(config.llm), ackAudio }),
       room: ctx.room,
       inputOptions: {
         // ai-coustics QUAIL audio enhancement for noise cancellation
