@@ -165,6 +165,9 @@ settings:
 overrides:
   '@opentelemetry/api': ~1.9.0
 
+patchedDependencies:
+  '@livekit/agents-plugin-soniox@1.9.5': 419c59008c923ff48158d5fddeb014c1b9bd01d7f2db4fbf2bbf7d4266a81ca1
+
 importers:
 
   .:
@@ -180,7 +183,7 @@ importers:
         version: 1.9.5(@livekit/agents@1.9.5(@livekit/rtc-node@1.2.1)(@types/node@24.19.2)(supports-color@7.2.0)(typescript@5.9.3)(zod@4.6.7))(@livekit/rtc-node@1.2.1)
       '@livekit/agents-plugin-soniox':
         specifier: ^1.9.5
-        version: 1.9.5(@livekit/agents@1.9.5(@livekit/rtc-node@1.2.1)(@types/node@24.19.2)(supports-color@7.2.0)(typescript@5.9.3)(zod@4.6.7))(@livekit/rtc-node@1.2.1)
+        version: 1.9.5(patch_hash=419c59008c923ff48158d5fddeb014c1b9bd01d7f2db4fbf2bbf7d4266a81ca1)(@livekit/agents@1.9.5(@livekit/rtc-node@1.2.1)(@types/node@24.19.2)(supports-color@7.2.0)(typescript@5.9.3)(zod@4.6.7))(@livekit/rtc-node@1.2.1)
       '@livekit/plugins-ai-coustics':
         specifier: ^0.3.2
         version: 0.3.5(@livekit/agents@1.9.5(@livekit/rtc-node@1.2.1)(@types/node@24.19.2)(supports-color@7.2.0)(typescript@5.9.3)(zod@4.6.7))(@livekit/rtc-node@1.2.1)
@@ -2459,7 +2462,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@livekit/agents-plugin-soniox@1.9.5(@livekit/agents@1.9.5(@livekit/rtc-node@1.2.1)(@types/node@24.19.2)(supports-color@7.2.0)(typescript@5.9.3)(zod@4.6.7))(@livekit/rtc-node@1.2.1)':
+  '@livekit/agents-plugin-soniox@1.9.5(patch_hash=419c59008c923ff48158d5fddeb014c1b9bd01d7f2db4fbf2bbf7d4266a81ca1)(@livekit/agents@1.9.5(@livekit/rtc-node@1.2.1)(@types/node@24.19.2)(supports-color@7.2.0)(typescript@5.9.3)(zod@4.6.7))(@livekit/rtc-node@1.2.1)':
     dependencies:
       '@livekit/agents': 1.9.5(@livekit/rtc-node@1.2.1)(@types/node@24.19.2)(supports-color@7.2.0)(typescript@5.9.3)(zod@4.6.7)
       '@livekit/rtc-node': 1.2.1

@@ -1,17 +1,22 @@
 import { inference, type llm, type stt, type tts } from '@livekit/agents';
 import * as elevenlabs from '@livekit/agents-plugin-elevenlabs';
-import * as soniox from '@livekit/agents-plugin-soniox';
 import type { LlmConfig, SttConfig, TtsConfig } from '../config.ts';
 import { KEYTERMS } from '../glossary.ts';
 import { VoiceAnthropicLLM } from './anthropic.ts';
+import { FinalizingSonioxSTT } from './soniox.ts';
 
 export function createSTT(config: SttConfig): stt.STT {
   switch (config.provider) {
     case 'soniox':
       // Soniox 플러그인은 세션의 keytermsOptions를 지원하지 않아 context.terms로 직접 넣습니다.
-      return new soniox.STT({
+      return new FinalizingSonioxSTT({
+        // 플러그인은 import 시점에 SONIOX_API_KEY를 읽어 두므로, dotenv 이후 값으로 다시 넘깁니다.
+        ...(process.env.SONIOX_API_KEY ? { apiKey: process.env.SONIOX_API_KEY } : {}),
         model: config.model,
         languageHints: ['ko'],
+        // 한국어만 쓰므로 언어 자동 감지를 끄고, 말 끝 판단을 가장 빠르게 합니다 (0~3).
+        enableLanguageIdentification: false,
+        endpointLatencyAdjustmentLevel: 3,
         context: { terms: [...KEYTERMS] },
       });
     case 'livekit':

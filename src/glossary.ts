@@ -27,6 +27,9 @@ export const MISHEARD_TERMS: ReadonlyArray<readonly [pattern: RegExp, correct: s
   [/메탈\s?(백|팩|펩|뱁)/g, '메탈팹'],
   [/(?<![A-Za-z])F\s?(two|투)(?![A-Za-z])/gi, 'F2'],
   [/(?<![A-Za-z])F\s?(one|원)(?![A-Za-z])/gi, 'F1'],
+  [/(?<![A-Za-z])P\s?(three|3)(?![A-Za-z0-9])/gi, 'P3'],
+  [/(?<![A-Za-z])M\s?(two|2)(?![A-Za-z0-9])/gi, 'M2'],
+  [/(?<![A-Za-z])O\s?(one|1)(?![A-Za-z0-9])/gi, 'O1'],
   [/엑스\s툴/g, 'xTool'],
 ];
 

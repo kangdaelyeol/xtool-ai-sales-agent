@@ -269,6 +269,7 @@ functions-xtool이 에이전트를 배정할 때 job metadata에 아래 JSON을 
 | ElevenLabs `language: 'ko'` | v4 Turbo는 Text-to-Dialogue API를 거쳐서, 언어 지정이 무시될 수 있습니다. 한국어 음성을 고르면 문제없습니다 |
 | 통화 중 도구 | 아직 없습니다(통화 종료, 체험 빈 시간 조회, 수신 거부). functions-xtool API가 생기면 붙이고, 그때 `src/agent.ts` 주석의 문장을 지시문에 넣습니다 |
 | 통화 후 판정 추출 | 이 레포가 아니라 functions-xtool에서 더 좋은 모델로 돌릴 예정입니다(tech-stack 6장) |
+| Soniox 플러그인 패치 | `patches/@livekit__agents-plugin-soniox@1.9.5.patch`가 flush를 Soniox `finalize`로 바꿉니다(말 끝 판단 단축). `@livekit/agents-plugin-soniox` 버전을 올리면 패치가 맞지 않을 수 있으니 `pnpm install` 오류와 `poc-results.md`의 지연을 다시 확인합니다 |
 | 첫 멘트 끼어들기 | 고지가 끝까지 들리도록 막아 두었습니다. 고객이 첫 멘트 중에 말하면 첫 멘트가 끝난 뒤에 반영됩니다 |
 
 ---

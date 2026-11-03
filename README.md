@@ -51,10 +51,11 @@ src/
   prompt.ts         상담 프롬프트 초안과 첫 멘트 (AI·녹음 고지)
   call-context.ts   통화별 고객 정보 (job metadata JSON, originalshq와의 계약)
   config.ts         부품 선택 (STT_/LLM_/TTS_PROVIDER 환경변수)
-  models/           부품 생성, Haiku 5.5용 LLM 래퍼 (생각 모드·effort·캐시)
+  models/           부품 생성, Haiku 5.5용 LLM 래퍼(생각 모드·effort·캐시), Soniox 수동 확정
   glossary.ts       STT 강조 단어, TTS 발음표
   pronunciation.ts  TTS 앞 발음 변환 (F2 울트라 → 에프투 울트라)
 scripts/check-llm.ts  LLM 지연 측정
+patches/            외부 패키지 패치 (Soniox: flush → finalize). LiveKit 업그레이드 때 다시 확인
 docs/               기술 문서
 scenarios.yaml      시뮬레이션 시나리오 (lk agent simulate text --scenarios scenarios.yaml)
 Dockerfile          배포 이미지 (GKE Autopilot 또는 GCE 서울 예정)

@@ -1,0 +1,28 @@
+diff --git a/dist/stt.cjs b/dist/stt.cjs
+index 76d534dc748d105f6fe85899bae0d23e4e816912..db053f73d696909f24d59b8ebef5283db85e22c9 100644
+--- a/dist/stt.cjs
++++ b/dist/stt.cjs
+@@ -227,6 +227,9 @@ class SpeechStream extends import_agents.stt.SpeechStream {
+       }
+       const data = result.value;
+       if (data === SpeechStream.FLUSH_SENTINEL) {
++        // xtool-ai-sales-agent 패치: flush()를 받으면 Soniox에 수동 확정을 요청합니다.
++        // Soniox는 지금까지의 토큰을 바로 확정하고 <fin> 토큰을 보내며, processMessage가 이를 FINAL로 냅니다.
++        ws.send('{"type":"finalize"}');
+         continue;
+       }
+       ws.send(Buffer.from(data.data.buffer, data.data.byteOffset, data.data.byteLength));
+diff --git a/dist/stt.js b/dist/stt.js
+index 9312fe93d0b75d0e3d7408cbdf71c7ab7079348a..861e696ad0e286f61c6f58a02f0116816b2ecd12 100644
+--- a/dist/stt.js
++++ b/dist/stt.js
+@@ -211,6 +211,9 @@ class SpeechStream extends stt.SpeechStream {
+       }
+       const data = result.value;
+       if (data === SpeechStream.FLUSH_SENTINEL) {
++        // xtool-ai-sales-agent 패치: flush()를 받으면 Soniox에 수동 확정을 요청합니다.
++        // Soniox는 지금까지의 토큰을 바로 확정하고 <fin> 토큰을 보내며, processMessage가 이를 FINAL로 냅니다.
++        ws.send('{"type":"finalize"}');
+         continue;
+       }
+       ws.send(Buffer.from(data.data.buffer, data.data.byteOffset, data.data.byteLength));
