@@ -31,7 +31,7 @@
 | 바탕 | 공식 스타터 `agent-starter-node`(2026-10-22 커밋 `3715649`)를 레포 루트에 펼침 |
 | 이름 | 패키지 `xtool-ai-sales-agent`, 에이전트 `xtool-sales-agent` |
 | `.gitignore` | 스타터가 `docs`를 무시하던 줄을 지움 |
-| CI | 타입·린트·포맷 검사만 남김. 템플릿 전용 검사와 비용이 드는 시뮬레이션 CI는 뺌 |
+| CI | 타입·린트·포맷 검사와 단위 테스트(`pnpm test`, 키 불필요). 템플릿 전용 검사와 비용이 드는 시뮬레이션 CI는 뺌 |
 | prettier | `docs/`는 대상에서 뺌 (표 서식 유지) |
 
 ### 1-2. 설치 문제 해결
@@ -181,7 +181,7 @@ lk agent console
 lk agent dev
 ```
 
-- LiveKit Cloud의 Agent Console을 엽니다. 주소는 `https://cloud.livekit.io/projects/p_/agents/console/?autoStart=true&agentName=xtool-sales-agent`입니다.
+- LiveKit Cloud의 Agent Console을 엽니다. **`lk agent dev`가 터미널에 출력하는 콘솔 링크로 여는 것이 가장 확실합니다.** CLI 2.19.0 이상의 `lk agent dev`는 워커를 무작위 `dev-…` 배포로 등록하고, 출력되는 링크가 그 배포를 가리킵니다. 아래처럼 주소를 직접 열면 `production`으로 배정되어 에이전트가 안 들어올 수 있습니다(그때는 `lk agent dev --deployment production`으로 띄움). 직접 여는 주소: `https://cloud.livekit.io/projects/p_/agents/console/?autoStart=true&agentName=xtool-sales-agent`
 - **에이전트 이름을 정해 두었기 때문에 자동 배정이 되지 않습니다.** 콘솔에서 에이전트 이름 `xtool-sales-agent`로 연결해야 합니다.
 - 맞장구("네", "음")에 멈추지 않는지, "잠깐만요"에 바로 멈추는지 확인합니다(끼어들기 구분 모델은 LiveKit Cloud와 dev 모드에서 기본으로 켜짐).
 
