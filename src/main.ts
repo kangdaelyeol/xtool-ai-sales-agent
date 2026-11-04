@@ -60,11 +60,12 @@ export default defineAgent({
         // to the interruption options below.
         // Allow the LLM to generate a response while waiting for the end of turn
         preemptiveGeneration: { enabled: true },
-        // 끼어들기로 인정하는 최소 길이 (기본 0.5초). "아니요", "잠깐만요"처럼 짧은 말도 잡도록 줄입니다.
-        // 맞장구("네", "음")는 끼어들기 구분 모델이 거릅니다.
+        // 끼어들기로 인정하는 최소 길이 (기본 0.5초). "아니요", "잠깐만요"에 빨리 멈추도록 0.2초로 둡니다
+        // (0.3초에서 멈추기까지 약 0.4초 걸려 2026-11-04 줄임). 맞장구("네", "음")는 끼어들기 구분 모델이
+        // 거르지만, 맞장구에도 자꾸 멈추면 250으로 올립니다. 0.2초 아래는 기침·숨소리에도 끊깁니다.
         // 끼어들기를 막은 말(AI·녹음 고지) 중에 고객이 한 말은 버리지 않고 고지가 끝난 뒤 처리합니다.
         // 기본값(버림)이면 고지 중의 "전화하지 마세요"를 못 듣습니다 (2026-11-03 시뮬레이션에서 발견).
-        interruption: { minDuration: 300, discardAudioIfUninterruptible: false },
+        interruption: { minDuration: 200, discardAudioIfUninterruptible: false },
       },
     });
 
@@ -74,6 +75,21 @@ export default defineAgent({
         if (ev.oldState === 'speaking' && ev.newState === 'listening') stt.finalize();
       });
     }
+
+    // 끼어들기 판단을 남깁니다. AI가 말할 때 고객 말이 겹치면 맞장구인지 끼어들기인지 모델이 가르고,
+    // 끼어들었는데 고객 말이 이어지지 않으면(잡음·숨소리) 하던 말을 다시 잇습니다. 안 끊길 때 원인을 봅니다.
+    session.on(voice.AgentSessionEventTypes.OverlappingSpeech, (ev) => {
+      log().info(
+        {
+          probability: Number(ev.probability.toFixed(2)),
+          detectionDelayMs: Math.round(ev.detectionDelayInS * 1000),
+        },
+        ev.isInterruption ? '겹친 말: 끼어들기로 판단(멈춤)' : '겹친 말: 맞장구로 판단(계속 말함)',
+      );
+    });
+    session.on(voice.AgentSessionEventTypes.AgentFalseInterruption, (ev) => {
+      log().info({ resumed: ev.resumed }, '끼어들기 취소: 고객 말이 이어지지 않아 하던 말을 이음');
+    });
 
     // 구간별 지연(STT 확정, LLM 첫 토큰, TTS 첫 음성, 말 끝 판단)을 통화마다 로그에 남깁니다.
     // 통화 결과에도 실어 보내 Firestore에 남깁니다(통화별 병목 확인).
