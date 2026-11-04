@@ -23,6 +23,10 @@ git status --short                     # 아직 커밋 안 된 변경
 # 2. SDK·플러그인 버전이 바뀌었나 (바뀌면 SDK 내부 설명 장을 다시 확인)
 grep -E '"@livekit/' package.json
 lk --version
+
+# 3. 연결된 originalshq 쪽이 바뀌었나 (받는 쪽 함수, 관리 화면. 기준 커밋은 최신 항목의 "기준")
+git -C ../originalshq log --oneline <기준 커밋>..HEAD -- \
+  functions-xtool/src/endpoints/voice-agent.ts functions-xtool/src/voice-call src/screens/log
 ```
 
 바뀐 파일에 따라 다시 볼 장입니다.
@@ -41,6 +45,8 @@ lk --version
 | `Dockerfile`, `pnpm-workspace.yaml`, `.gitignore` | 15 |
 | `docs/poc-results.md` 새 측정 | 수치를 인용한 장 (6, 7, 8, 9, 11, 13) |
 | `docs/*.md` 새 설계 문서 | 1(전체 그림) + 해당 주제 장 |
+| originalshq `functions-xtool/src/endpoints/voice-agent.ts`, `voice-call/*` | 3-7, 4-3(계약 사본), 8-11(판정), 15-6(저장·트리거) |
+| originalshq `src/screens/log/` (AI 상담원 탭) | 3-7, 4-3, 15-6 |
 
 마무리할 때:
 
@@ -51,6 +57,63 @@ lk --version
 ---
 
 ## 이력
+
+### 2026-11-04 (7차): #22 수정, 받는 쪽 코드 읽기, 끼어들기 200ms, 발견 사항 확인
+
+#### 기준
+
+- 이 레포: 커밋 `4ecef6d` + 미커밋 작업 트리 (`src/main.ts`의 `minDuration` 200, 이번 `src/prompt.test.ts` 수정)
+- 6차의 미커밋 작업 트리는 `feat/voice-agent-tuning` 브랜치에서 커밋 7개(`5585080`~`4ecef6d`)로 나뉘어 main에 fast-forward로 합쳐짐. 내용은 6차 때 본 것과 같음
+- originalshq: `d7054a1` (음성 에이전트 관련 커밋 `a7687d0`, `d57c577`, `d7054a1`)
+- 확인 당시 상태: `pnpm test` **28개** 통과 (파일 7개), `typecheck`·`lint`·`format:check` 통과, functions-xtool `tsc --noEmit` 통과
+- 버전: `@livekit/agents` 1.9.5 (3차와 같음), originalshq functions-xtool `@anthropic-ai/sdk` 1.4.0
+
+#### 이번에 고친 것 (이 작업)
+
+| 파일 | 변경 | 관련 |
+| --- | --- | --- |
+| `src/prompt.test.ts` | `expect(loadKnowledge()).toBe('')`를 두 테스트로 나눔: 템플릿 모양 입력으로 `cleanKnowledge` 시험, 실제 파일은 작성 안내 주석이 새지 않는지만 확인. 채운 파일은 통과하고 닫히지 않은 주석은 실패함을 직접 확인 | 16-2 #22 → 고침, 14-2 |
+
+#### 레포에서 바뀐 것
+
+| 파일 | 변경 |
+| --- | --- |
+| `src/main.ts` (사용자, 미커밋) | 끼어들기 최소 길이 `minDuration` 300 → **200**ms. 300에서 멈추기까지 약 0.4초. 맞장구에 자꾸 멈추면 250으로 올림 |
+| originalshq `functions-xtool/src/endpoints/voice-agent.ts` | `createVoiceAgentSession`(토큰), `submitVoiceCallResult`(비밀키 상수 시간 비교, `create()`로 처음 것만 저장), `extractVoiceCallJudgment`(`xtool-read` DB 문서 생성 트리거), `getVoiceCall`(관리자 조회) |
+| originalshq `functions-xtool/src/voice-call/analyze.ts`, `types.ts` | Opus 5.5 구조화 출력(zod), `'미확인'` 선택지, effort low, 서버 측 대체 모델(`fallbacks: 'default'`), 거절·파싱 실패 검사 |
+| originalshq `src/screens/log/` | AI 상담원 탭: `LiveKitRoom`로 통화, 끝나면 3초마다 최대 2분 결과 조회, 요약·판정 칸·평균 지연·대화록 표시 |
+
+#### SDK 코드·문서로 확인한 것
+
+- 종료 콜백은 `room.disconnect()` 뒤에 `Promise.allSettled`로 서로 병렬 실행. Node `shutdownProcessTimeout` 기본값은 60초(문서의 10초는 Python).
+- 고객이 나가면 RoomIO가 세션만 닫고 잡은 남음. 방은 에이전트가 아닌 마지막 참가자가 나간 뒤 `departure_timeout`이 지나야 닫힘 → #21 확인.
+- `RoomInputOptions.deleteRoomOnClose`가 Node 1.9.5 공개 타입에 있음. 문서는 Python 전용으로 표시 → #23, LiveKit에 문서 피드백 보냄.
+- LLM·TTS 지표는 첫 토큰·첫 음성이 없으면 `-1`. SDK 자체 텔레메트리는 `ttftMs >= 0`만 씀 → #20 확인.
+- 적응형 끼어들기에서 `minDuration`은 발화 첫 1초(`backchannelBoundary`)에만 쓰이고, 그 뒤 판정 모델 경로(`onOverlapSpeech`)에는 길이 검사가 없음.
+- SIP 끊김 사유 중 `USER_UNAVAILABLE`·`SIP_TRUNK_FAILURE`는 세션을 자동으로 닫지 않음(발신 단계 주의).
+- `analyze.ts`의 API 모양(`fallbacks: 'default'`와 `server-side-fallback-2026-07-01` 짝, Opus 5.5 생각 모드 항상 켜짐·기본 effort medium, 베타 경로의 `betaZodOutputFormat`)이 Claude API 참고 자료와 맞음.
+
+#### 학습서에서 고친 곳
+
+| 장 | 고친 곳 |
+| --- | --- |
+| 1 | 결과 경로 그림에 8-11·15-6절 연결 |
+| 3 | 3-7에 "통화가 끝난 뒤 화면" 한 단락 |
+| 4 | 4-3 **계약 사본 전체 표**, 4-7 종료 순서(콜백 병렬, 60초), 방이 닫히는 규칙, **SIP 끊김 사유 표** |
+| 5 | 끼어들기 감지 값 200ms |
+| 7 | **`minDuration` 500 → 300 → 200 절 다시 씀** (멈추기까지 시간의 구성, 방식별 효과, 대가), 수치·확인 문제 답 갱신 |
+| 8 | **8-11 "통화 후 판정 코드 읽기: 구조화 출력" 신설** (제약 디코딩, 스키마도 지시문, 강제 선택과 `'미확인'`, 거절과 대체 모델), 확인 문제 7·8 |
+| 9 | 9-2⑨에 지식 파일 주석 누출 테스트 |
+| 13 | 13-5 지연 기록 표에 `-1` 표지값, 거르는 코드 예 |
+| 14 | 14-2 표 갱신, **"데이터의 지금 상태를 고정한 테스트" 사례 신설** (변경 감지 테스트, 불변식, 테스트가 실패할 수 있는지 확인) |
+| 15 | **15-6 "받는 쪽 코드 읽기" 신설** (상수 시간 비교, `create()`와 멱등 키, 이벤트로 잇기와 최소 한 번 전달, 이름 있는 DB와 트리거, **끝나는 경로별 시간표**, 조회 화면) |
+| 16 | #12·#17·#20·#21 확인됨으로, #22 고침, **#23·#24 추가**. 용어 9개, 읽을거리 2줄 |
+| 여러 장 | 커밋됐으므로 "작업 중인 코드" 표시 30여 곳 정리 |
+
+#### 새로 남긴 확인 필요
+
+- #21의 실제 지연 시간(방 유예 시간 값)은 재 보지 않음. 웹 테스트에서 "통화 끝내기"를 눌러 결과가 뜨기까지 시간을 재면 됨.
+- `minDuration` 200의 효과는 적응형 방식에서 발화 첫 1초 안의 끼어들기에만 나타남. 나눠서 재 봐야 함(7-5).
 
 ### 2026-11-03 (6차): 지식 자료, 시뮬레이션 회차 기록, LLM 지역 조사 반영
 

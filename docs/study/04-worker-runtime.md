@@ -160,6 +160,20 @@ export function parseCallContext(metadata: string | undefined): CallContext {
 
 (2026-11-03 갱신) 통화 결과 전송(15-6절)이 생기면서 반대 방향의 계약도 하나 늘었습니다. 에이전트가 보내는 대화록 한 줄(`CallTurn`, [src/call-result.ts](../../src/call-result.ts))은 originalshq의 `voice-call/types.ts`와 모양이 같아야 합니다. 이번에는 이 레포가 **보내는 쪽**입니다.
 
+(2026-11-04 갱신) originalshq 쪽 코드(커밋 `a7687d0`·`d57c577`·`d7054a1`)를 읽어 보니, 같은 모양이 관리 화면에도 손으로 옮겨 적혀 있습니다. 지금 있는 사본을 모두 모으면 이렇습니다.
+
+| 계약 | 이 레포 | functions-xtool | 관리 화면 |
+| --- | --- | --- | --- |
+| 고객 정보 (metadata) | `call-context.ts` `CallContextSchema` (zod, `callId`는 선택) | `voice-call/types.ts` `CallContext` (`callId` 필수) | `voice-agent-client.ts` `TestCallInput` |
+| 가상 고객 예시 | `call-context.ts` `SAMPLE_CALL` | | `voice-agent-panel.tsx` `SAMPLE_CALL` ("에이전트 레포와 같다"는 주석) |
+| 대화록·지연 기록 | `call-result.ts` `CallTurn`, `CallLatency` | `types.ts` 같은 이름 | `VoiceCallRecord` 안에 다시 적음 |
+| 판정 칸 | | `analyze.ts` `CallJudgmentSchema` (zod) | `VoiceCallJudgment` |
+| 에이전트 이름 | `main.ts` `agentName: 'xtool-sales-agent'` | `voice-agent.ts` `AGENT_NAME` | |
+
+한 레포 안에서는 사본을 줄였습니다. functions-xtool은 엔드포인트와 판정이 `types.ts` 하나를 같이 쓰고, 판정 칸 타입은 zod 스키마에서 뽑습니다(`z.infer`). 사본이 생기는 곳은 **레포 경계**와 **서버·브라우저 경계**입니다. 서버·브라우저 사이는 같은 레포라도 빌드가 따로라 타입을 그대로 가져다 쓰기 어렵습니다.
+
+대부분 고쳐도 조용합니다. 판정 칸 이름을 바꾸면 화면의 그 칸이 "—"로 보일 뿐이고, 에이전트 이름이 어긋나면 "에이전트가 방에 안 들어옴"으로만 드러납니다.
+
 [web-test.md 3장](../web-test.md#3-에이전트에-넘기는-고객-정보-metadata-계약)은 "한쪽을 바꾸면 다른 쪽도 바꾼다"고 적어 두었습니다. 사람의 기억에 기대는 규칙이라, 한쪽만 바뀌면 에이전트가 깨진 metadata로 보고 "고객님"으로 진행하거나(③), 새 필드를 조용히 무시합니다. 오류가 나지 않으니 늦게 발견됩니다. 줄이는 방법은 다음과 같습니다.
 
 - **보내는 쪽도 검증**: functions-xtool이 이미 `installment` 값을 검사하는 것처럼, 보내기 전에 모양을 확인합니다(지금 하고 있음).
@@ -360,10 +374,18 @@ SIP 발신에서는 고객이 전화를 **받기 전부터** SIP 참가자가 �
 entry 종료 대기 (최대 15초)
  → session.close() (최대 60초)
  → 세션 리포트 업로드 (LiveKit Cloud 관측 기능)
- → room.disconnect(), 종료 콜백들 병렬 실행
+ → room.disconnect()
+ → 종료 콜백들 (서로는 병렬, Promise.allSettled: 하나가 실패해도 나머지는 돎)
  → 로그·트레이스 플러시
  → 부모에게 done → 네이티브 자원 정리 → exit(0)
 ```
+
+(2026-11-04 추가) 이 순서에서 이 프로젝트가 기대는 성질이 두 가지 있습니다.
+
+- **종료 콜백은 세션이 닫힌 뒤에 돕니다.** 그래서 결과 전송 콜백이 읽는 `session.history`는 완성된 대화 기록입니다(15-6절).
+- **종료 콜백끼리는 기다리지 않습니다.** `endCall`이 등록하는 방 삭제와 결과 전송(최대 10초)이 동시에 돌므로, 전송이 느려도 전화가 늦게 끊기지 않습니다.
+
+부모 워커가 잡 프로세스를 닫을 때는 단계마다 `shutdownProcessTimeout`만큼 기다리고, 넘으면 강제로 끝냅니다(SIGKILL, `ipc/supervised_proc.ts`). **Node SDK의 기본값은 60초**입니다(`worker.ts`). LiveKit 문서의 "기본 10초"는 Python의 `shutdown_process_timeout` 이야기라, Node에서는 결과 전송의 10초 제한이 충분히 안에 들어갑니다.
 
 ### 고객이 전화를 끊으면
 
@@ -371,9 +393,29 @@ RoomIO는 고객의 연결이 끊긴 사유가 "클라이언트가 끊음", "방
 
 통화 종료 도구를 붙일 때(9장) 함께 정리할 부분입니다. 선택지는 세션의 `Close` 이벤트에서 `ctx.shutdown()`을 부르거나, RoomIO의 `deleteRoomOnClose: true`를 쓰는 것입니다. 또 SIP 쪽에서 끊긴 사유가 위 세 가지가 아니면 세션이 닫히지 않을 수 있어, 전화 연결 단계에서 실제 사유 값을 확인해야 합니다.
 
-### 에이전트가 먼저 끊을 때 (2026-11-03 추가, 작업 중인 코드)
+(2026-11-04 확인) "서버가 빈 방을 정리할 때"가 언제인지 LiveKit 문서로 확인했습니다.
 
-이 절은 아직 커밋되지 않은 작업 트리의 코드를 기준으로 썼습니다. 끊는 경로가 두 개 생겼습니다.
+- 방은 **에이전트가 아닌 마지막 참가자**가 나가면 닫힙니다. 에이전트만 남은 방은 빈 방으로 칩니다.
+- 다만 바로 닫지 않고 방 설정의 유예 시간(`departure_timeout`)을 기다립니다. 방이 닫히면 에이전트도 연결이 끊기고, 그때 잡이 끝납니다.
+- `deleteRoomOnClose: true`는 이 유예 시간을 건너뛰게 합니다. 문서는 Python 전용으로 표시하지만 Node SDK 1.9.5에도 공개 옵션으로 있습니다(16-2 #23).
+
+통화 결과 전송이 이 시점에 묶여 있어 실제 영향이 생겼습니다(15-6절 "끝나는 경로별 시간표", 16-2 #21).
+
+SIP 참가자의 끊김 사유도 문서에 표로 정리돼 있습니다. 발신 통화를 하는 이 프로젝트에 중요한 부분입니다.
+
+| 사유 | 언제 | 세션 자동 닫힘 |
+| --- | --- | --- |
+| `CLIENT_INITIATED` | 연결된 뒤 어느 쪽이든 정상적으로 끊음 (상대의 BYE) | 예 |
+| `ROOM_DELETED` | 방 삭제 (통화 종료 도구, `deleteRoom`) | 예 |
+| `USER_REJECTED` | 받기 전에 받는 사람이 거절 (SIP 486 통화 중, 603 거부. 발신만) | 예 |
+| `USER_UNAVAILABLE` | 받지 않음, 연결 불가 (발신만) | **아니요**: 코드가 `ctx.shutdown()`을 직접 불러야 함 |
+| `SIP_TRUNK_FAILURE` | 회선·프로토콜 오류 (발신만) | **아니요**: 위와 같음 |
+
+고객이 전화를 받지 않으면(`USER_UNAVAILABLE`) 세션이 저절로 닫히지 않습니다. 발신을 붙일 때 이 경우의 종료와 "부재" 결과 기록을 따로 처리해야 합니다.
+
+### 에이전트가 먼저 끊을 때 (2026-11-03 추가)
+
+처음에는 커밋 전 작업 트리를 보고 썼고, 이 코드는 커밋 `5585080`으로 들어갔습니다. 끊는 경로가 두 개 생겼습니다.
 
 | 경로 | 언제 | 하는 일 |
 | --- | --- | --- |
@@ -381,7 +423,7 @@ RoomIO는 고객의 연결이 끊긴 사유가 "클라이언트가 끊음", "방
 | **`endCall` 함수** ([src/main.ts](../../src/main.ts)) | 코드가 정한 조건 (무응답, 최대 통화 길이, 5-5절의 `call-guard.ts`) | 정해진 작별 인사를 끼어들기 막고 끝까지 재생 → 종료 콜백에 방 삭제 등록 → `ctx.shutdown(사유)` |
 
 ```ts
-// src/main.ts (작업 중)
+// src/main.ts
 let ending = false;
 const endCall = async (goodbye: string, reason: string) => {
   if (ending) return;                     // 두 번 끊지 않기 (무응답과 최대 길이가 겹쳐도 한 번만)
