@@ -44,10 +44,17 @@ describe('knowledge', () => {
   });
 
   it('작성 안내 주석만 있는 템플릿은 빈 지식이다', async () => {
-    const { cleanKnowledge, loadKnowledge } = await import('./knowledge.ts');
+    const { cleanKnowledge } = await import('./knowledge.ts');
+    expect(cleanKnowledge('<!--\n작성 안내\n-->\n')).toBe('');
     expect(cleanKnowledge('<!-- 안내 -->\n\n## 기기\n- F2 울트라: 각인')).toBe(
       '## 기기\n- F2 울트라: 각인',
     );
-    expect(loadKnowledge()).toBe('');
+  });
+
+  it('실제 지식 파일은 작성 안내 주석 없이 읽는다', async () => {
+    // 내용은 상담팀이 채우므로 비었는지는 보지 않습니다. 주석이 닫히지 않으면 안내문이 프롬프트에 들어갑니다.
+    const { loadKnowledge } = await import('./knowledge.ts');
+    expect(loadKnowledge()).not.toContain('<!--');
+    expect(loadKnowledge()).not.toContain('상담팀이 채웁니다');
   });
 });
