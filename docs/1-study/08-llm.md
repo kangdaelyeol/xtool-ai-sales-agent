@@ -368,34 +368,70 @@ LLM을 일본에서 처리하려고 Amazon Bedrock을 붙일 때(13-5절, 16장)
 | 플러그인이 쓰는 것 | 언제 | Bedrock 클라이언트(`AnthropicBedrock`)에서 |
 | --- | --- | --- |
 | `client.messages.create({ …, stream: true })` | 매 턴의 요청 | 있음. SDK가 Bedrock 모양으로 다시 씀(16-6절) |
-| `client.models.list({ limit: 1 })` | `_prewarmImpl`: 세션이 시작될 때 미리 연결 | **없음.** TypeError가 나지만 SDK의 `prewarm()`이 조용히 삼킴 (17-2 #27) |
+| `client.models.list({ limit: 1 })` | `_prewarmImpl`: 세션이 시작될 때 미리 연결 | **없음.** TypeError가 나지만 SDK의 `prewarm()`이 조용히 삼킴 (17-2 #27, 아래 "미리 연결 대신 하기"에서 고침) |
 | `client.baseURL` | `provider` 이름(지표 라벨) | `bedrock-runtime.ap-northeast-1.amazonaws.com` |
 
 **해결.** 플러그인도, 감싸는 클래스도 그대로 두고 클라이언트만 바꿉니다([src/models/index.ts](../../src/models/index.ts)).
 
 ```ts
-case 'bedrock':
+case 'bedrock': {
+  const client = createBedrockClient();
   return new VoiceAnthropicLLM({
     model: config.model, // 기본 jp.anthropic.claude-haiku-5-5
     effort: config.effort,
     thinking: config.thinking,
     maxTokens: 2048,
     // 플러그인은 @anthropic-ai/sdk 0.33 타입을 기대하지만, 쓰는 것은 messages.create 스트림뿐입니다.
-    client: new AnthropicBedrock({
-      awsRegion: process.env.AWS_REGION || 'ap-northeast-1',
-      maxRetries: 0,
-    }) as unknown as NonNullable<anthropic.LLMOptions['client']>,
+    client: client as unknown as NonNullable<anthropic.LLMOptions['client']>,
+    prewarmUrl: client.baseURL,
   });
+}
+
+export function createBedrockClient(): AnthropicBedrock {
+  return new AnthropicBedrock({
+    awsRegion: process.env.AWS_REGION || 'ap-northeast-1',
+    apiKey: null,
+    maxRetries: 0,
+  });
+}
 ```
 
 - `maxRetries: 0`은 플러그인의 기본값과 같습니다. 재시도는 LiveKit이 연결 옵션으로 하므로, SDK까지 재시도하면 실패한 턴이 겉으로 드러나지 않은 채 몇 배로 늦어집니다.
-- 인증은 생성자에 넣지 않고 환경변수에서 찾게 둡니다. 그 찾는 순서 때문에 생긴 함정(17-2 #26)은 16-4절에 있습니다.
+- (2026-11-05 갱신) 인증 키는 생성자에 넣지 않고 환경변수의 IAM 키를 찾게 둡니다. 다만 `apiKey: null`로 Bedrock API 키 환경변수만은 읽지 않게 막습니다. 처음 코드에는 이 줄이 없어서, 남아 있던 API 키가 IAM 키보다 먼저 쓰였습니다(17-2 #26, 16-4절).
+- `prewarmUrl`은 아래 "미리 연결 대신 하기"에서 다룹니다.
 
 **타입 강제 변환의 대가.** `@anthropic-ai/bedrock-sdk` 1.1.1은 `@anthropic-ai/sdk` 1.x 위에 만들어졌고, 플러그인의 타입은 0.33의 `Anthropic` 클래스를 가리킵니다. TypeScript는 모양(구조)으로 타입을 비교하는데, 두 버전의 클래스는 멤버가 달라 서로 대입되지 않습니다. 그래서 `as unknown as …`로 **"이 경계에서는 검사하지 마라"**고 컴파일러에 알립니다. 관련 없는 두 타입 사이의 직접 변환은 TypeScript가 거부하므로 `unknown`을 한 번 거칩니다. `NonNullable<anthropic.LLMOptions['client']>`는 0.33 SDK를 따로 import하지 않고 플러그인이 선언한 타입을 그대로 꺼내 쓰는 방법입니다.
 
 대가는 바로 위 표에 있습니다. 플러그인이 `messages` 말고 다른 것을 쓰면 컴파일러가 알려 주지 않습니다. 실제로 `models.list`가 그랬고, 오류마저 삼켜져 아무 표시 없이 미리 연결만 빠졌습니다. 강제 변환은 **검사를 사람에게 넘기는 것**이라, 그 경계를 지키는 장치가 따로 있어야 합니다. 예를 들어 플러그인을 올릴 때마다 Bedrock으로 한 턴을 돌려 보거나, 플러그인이 부르는 메서드가 Bedrock 클라이언트에 있는지 확인하는 테스트(14장)를 둡니다.
 
-**옵션은 그대로 흘러간다.** `VoiceAnthropicLLM`이 넣는 `thinking`, `output_config.effort`, 맨 위 `cache_control`(8-4절의 자동 캐시)은 요청 본문에 실립니다. Bedrock SDK는 본문에서 `model`·`stream`만 빼서 경로로 옮기고 `anthropic_version`을 더하므로(16-6절), 나머지는 그대로 Bedrock에 갑니다. **Bedrock이 이 셋을 Haiku 5.5에서 받아 주는지는 아직 확인되지 않았습니다.** 2026-11-05의 A/B(13-5절)는 Haiku 5.5가 이 계정에 열리지 않아, 이 옵션이 없는 기본 플러그인과 Haiku 4.5로 쟀기 때문입니다. 특히 자동 캐시는 Anthropic API 기능이라 Bedrock이 모르는 필드로 보고 400을 낼 수도 있습니다. Haiku 5.5가 열리면 #26을 먼저 정리하고 `LLM_PROVIDER=bedrock pnpm check:llm`으로 운영 경로를 한 번 돌려 봅니다. `check:llm`은 400 설정 거절을 바로 보여 주도록 만들어져 있습니다(8-9절).
+**옵션은 그대로 흘러간다.** `VoiceAnthropicLLM`이 넣는 `thinking`, `output_config.effort`, 맨 위 `cache_control`(8-4절의 자동 캐시)은 요청 본문에 실립니다. Bedrock SDK는 본문에서 `model`·`stream`만 빼서 경로로 옮기고 `anthropic_version`을 더하므로(16-6절), 나머지는 그대로 Bedrock에 갑니다. **Bedrock이 이 셋을 Haiku 5.5에서 받아 주는지는 아직 확인되지 않았습니다.** 2026-11-05의 A/B(13-5절)는 Haiku 5.5가 이 계정에 열리지 않아, 이 옵션이 없는 기본 플러그인과 Haiku 4.5로 쟀기 때문입니다. 특히 자동 캐시는 Anthropic API 기능이라 Bedrock이 모르는 필드로 보고 400을 낼 수도 있습니다. Haiku 5.5가 열리면 `LLM_PROVIDER=bedrock pnpm check:llm`으로 운영 경로를 한 번 돌려 봅니다(2026-11-05 확인: 아직 모델 사용 자격 403). `check:llm`은 400 설정 거절을 바로 보여 주도록 만들어져 있습니다(8-9절).
+
+#### 미리 연결 대신 하기 (2026-11-05 추가)
+
+미리 연결(prewarm)은 첫 요청 전에 **DNS 조회, TCP 연결, TLS 핸드셰이크**를 끝내 두는 기법입니다. 서울에서 도쿄까지 왕복이 수십 ms이므로, 새 연결 하나는 왕복 두세 번, 곧 0.1초 안팎입니다. LiveKit은 `AgentSession`을 만들 때 `llm.prewarm()`을 부르고, 플러그인은 그 안에서 `models.list`를 부릅니다. 응답 내용은 버리고 연결만 남기려는 요청입니다.
+
+Bedrock 클라이언트에는 이 메서드가 없으므로, [src/models/anthropic.ts](../../src/models/anthropic.ts)의 `VoiceAnthropicLLM`이 `_prewarmImpl`을 덮어씁니다. `prewarmUrl`이 있으면 그 주소로 서명 없는 HEAD를 보냅니다.
+
+```ts
+protected override async _prewarmImpl(signal: AbortSignal): Promise<void> {
+  if (!this.#prewarmUrl) return super._prewarmImpl(signal);
+  await fetch(this.#prewarmUrl, { method: 'HEAD', signal });
+}
+```
+
+가짜 키로 거절 응답만 받으며 잰 결과(2026-11-05, 맥 서울)가 이 결정의 근거입니다.
+
+| 실험 | 결과 |
+| --- | --- |
+| Bedrock 주소에 HEAD | 404와 `connection: close`. **서버가 이 연결은 닫습니다** |
+| HEAD 뒤 6초 쉬고 첫 요청 vs 미리 연결 없이 첫 요청 | 6쌍 모두 HEAD 쪽이 빠름. 중앙값 약 0.165초 vs 0.21초 |
+| 서명한 요청 뒤 0·3초 쉬고 다음 요청 | 연결 재사용 (새 연결 0) |
+| 서명한 요청 뒤 5·10초 쉬고 다음 요청 | 새 연결 1 |
+| Anthropic 경로(SDK 0.33) 같은 실험 | 0·3초는 재사용, 6초는 새 연결 |
+
+- 연결이 닫혀도 빨라지는 이유는 **DNS 결과와 TLS 세션**이 남기 때문입니다. TLS 1.3은 전에 받은 세션 티켓으로 핸드셰이크를 줄여 다시 맺을 수 있습니다(세션 재개). SDK도 같은 전역 `fetch`를 써서 세션 캐시를 같이 씁니다.
+- 연결 자체는 4초 넘게 쉬면 **클라이언트 쪽에서** 닫습니다. Node 내장 fetch(undici)와 SDK 0.33의 `agentkeepalive` 모두 쉬는 연결을 4초 뒤 닫는 것이 기본값이고, AWS는 더 오래 두라는 `Keep-Alive` 머리글을 보내지 않습니다. 통화에서는 세션을 만들고 고지 멘트가 끝난 뒤에야 첫 LLM 요청이 가므로, Anthropic 경로의 미리 연결도 실제로는 DNS·TLS 세션 정도만 남깁니다. 그래서 HEAD 방식으로 두 경로가 같은 수준이 됩니다.
+- 이 실험이 더 큰 질문을 남겼습니다. 턴 사이(AI가 말하고 고객이 답하는 시간)가 4초를 넘으면 **매 턴이 연결을 다시 맺습니다**(17-2 #28). 실제 통화에서 얼마인지는 아직 재지 않았습니다(13-5절).
 
 ---
 
@@ -425,7 +461,8 @@ if (chunk.delta?.content) {
 - **번갈아 부르는 이유.** 서버 혼잡은 시간에 따라 바뀝니다. A를 10번 다 부르고 B를 10번 부르면 "공급자 차이"와 "시간대 차이"가 섞여 가를 수 없습니다. A, B, A, B…로 엮으면 시간에 따른 흔들림이 양쪽에 고르게 들어갑니다. 실험 설계에서 교란 변수를 막는 기본 기법입니다.
 - **세 숫자.** 중앙값(p50)은 튀는 값에 강하고, p90은 꼬리(13-6절)를, 최소는 "모든 것이 잘 맞았을 때"의 바닥을 보여 줍니다. 최소의 차이는 거리(네트워크) 몫에 가깝고, 중앙값의 차이는 거기에 서버 대기까지 합친 몫입니다.
 - **표본이 작습니다.** 10~12회면 p90은 사실상 "두 번째로 느린 값"입니다. 0.1초 안쪽 차이는 다시 재서 같은 방향이 나오는지 봐야 합니다.
-- **주의.** 이 스크립트는 운영과 같은 `createLLM`을 써서, 인증도 운영과 같은 순서로 찾습니다. 그래서 `.env.local`에 Bedrock API 키가 남아 있으면 17-2 #26에 걸립니다. 2026-11-05의 실제 측정은 그 변수를 지운 임시 스크립트로 했습니다.
+- **운영과 같은 경로.** 이 스크립트는 운영과 같은 `createLLM`을 써서, 인증도 운영과 같은 순서로 찾습니다. 2026-11-05의 실제 측정은 #26이 남아 있어 Bedrock API 키 변수를 지운 임시 스크립트로 했습니다. #26을 고친 지금은 그대로 돌려도 됩니다.
+- **재사용된 연결로 잰 값.** 두 경로를 쉬지 않고 번갈아 부르므로, 한쪽이 쉬는 시간은 다른 쪽 호출 하나(1~2초)뿐이라 4초 유휴 종료(17-2 #28)에 걸리지 않습니다. 실제 통화는 턴 사이가 더 길어 두 경로 모두 연결을 다시 맺는 몫이 더해질 수 있습니다.
 
 ---
 

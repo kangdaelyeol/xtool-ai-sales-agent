@@ -35,11 +35,13 @@
 | 생존자 편향 (survivorship bias) | 끝까지 남은 것만 보고 판단해 생기는 치우침. 느려서 취소된 턴을 빼면 평균이 좋아 보임 (13) |
 | 서비스 계정 / 서비스 에이전트 | GCP에서 프로그램의 신원 / 구글 서비스가 내 프로젝트에서 쓰는 신원 (16) |
 | 선제 생성 (preemptive generation) | 턴 확정 전에 LLM을 미리 돌리는 투기적 실행 (11) |
+| 세션 재개 (TLS session resumption) | 전에 받은 세션 티켓으로 TLS 핸드셰이크를 줄여 다시 연결하는 것. 연결이 닫혀도 미리 연결의 이득 일부가 남는 이유 (8) |
 | 스펙트로그램 | 시간×주파수×세기로 소리를 그린 그림. 모델의 입력 (2) |
 | 역 텍스트 정규화 (ITN) | "이백구십만" → "2,900,000"처럼 말한 형식을 쓰는 형식으로 (6) |
 | 역압 (backpressure) | 소비가 느릴 때 생산을 늦추는 스트림 흐름 제어 (12) |
 | 오디오 턴 감지 모델 | 소리(의미+운율)로 말 끝 확률을 내는 모델. `inference.TurnDetector` (7) |
 | 워크로드 아이덴티티 연동 | 한 클라우드가 발급한 ID 토큰을 다른 클라우드의 임시 자격 증명으로 바꿔 장기 키 없이 인증 (16) |
+| 유휴 연결 종료 (keep-alive timeout) | 쉬는 연결을 정한 시간 뒤 닫는 것. Node 내장 fetch와 `agentkeepalive` 기본 4초라, 턴 사이가 길면 매 턴 다시 연결 (8, 13) |
 | 유휴 프로세스 프리워밍 | 잡이 오기 전에 자식 프로세스를 미리 띄워 두는 것 (4) |
 | 음성 직통형 (speech-to-speech) | 소리를 받아 바로 소리를 내는 단일 모델 구조 (1) |
 | 자격 증명 체인 (credential provider chain) | SDK가 환경변수 → 파일 → 메타데이터 순으로 키를 찾는 규칙. 앞에서 찾으면 끝 (16) |
@@ -128,8 +130,9 @@ SDK·플러그인 코드를 읽고 일부를 재현하면서 찾은 것들입니
 | 23 | LiveKit 문서가 `delete_room_on_close`(세션이 닫히면 방 삭제)를 Python 전용으로 표시하지만, Node SDK 1.9.5에도 공개 옵션 `RoomInputOptions.deleteRoomOnClose`로 있음 | 확인됨 (SDK 타입·코드). LiveKit에 문서 피드백 보냄 | Node에서 #21의 한 줄 해결을 문서만 보고는 찾기 어려움 | 4-7, 15-6 |
 | 24 | (originalshq) 판정 트리거가 시간 제한(120초)으로 강제 종료되면 `catch`가 돌지 않아 문서가 `saved`에 머물고, 관리 화면은 2분 뒤 "전송 설정(VOICE_RESULT_URL)을 확인하라"고 안내함 | 확인됨 (코드) | 전송은 성공했는데 엉뚱한 곳을 보게 됨. 문서가 `saved`인 채 시간이 지났으면 "판정이 멈춤, functions 로그 확인"으로 안내를 나누기 | 15-6 |
 | 25 | 끼어들기 판정 로그가 AI 말이 먼저 끝나 판정이 없던 겹침(`agentEnded: true`, `isInterruption`은 늘 false)도 "맞장구로 판단"으로 적음 (`main.ts`) | **고침** (2026-11-04: 끼어들기·맞장구·판단 없음 셋으로 나눠 적음. SDK 통계와 같은 기준) | "안 끊길 때 원인"을 볼 때 판정이 없던 겹침이 모델 오판처럼 보임 | 7-5 |
-| 26 | (2026-11-05) Bedrock 클라이언트가 `.env.local`에 남은 `AWS_BEARER_TOKEN_BEDROCK`(SCP가 막은 단기 API 키)을 IAM 액세스 키보다 먼저 씀. `new AnthropicBedrock({ awsRegion })`이 환경변수 토큰을 읽고, SDK 우선순위가 토큰 > 액세스 키 (`models/index.ts`, `@anthropic-ai/bedrock-sdk` `client.js`) | 확인됨 (SDK 코드). 커밋 `144d25b`에도 그대로. 확인용 `curl`과 A/B 임시 스크립트는 변수를 지우고 돌려 우회함. 실행으로는 미확인 | `LLM_PROVIDER=bedrock` 워커와 `pnpm compare:llm`이 `explicit deny`로 403. 그 줄을 지우거나 클라이언트를 `apiKey: null`로 만듦(의도를 코드에 남기려면 후자) | 16-4, 8-9 |
-| 27 | (2026-11-05) Bedrock 경로에서는 LLM 미리 연결이 조용히 빠짐. 플러그인의 `_prewarmImpl`이 `client.models.list`를 부르는데 `AnthropicBedrock`에는 `models`가 없어 TypeError, SDK `LLM.prewarm()`이 오류를 삼킴. 타입 강제 변환(`as unknown as`) 때문에 컴파일러도 못 잡음 | 확인됨 (코드 + 가짜 키로 오프라인 재현: `Cannot read properties of undefined (reading 'list')`). 지연 영향은 미측정 | 통화의 첫 LLM 요청이 도쿄까지의 연결(TLS)과 자격 증명 모듈 로딩 비용을 냄. A/B 중앙값에는 거의 안 드러남. 감싸는 클래스에서 Bedrock일 때 미리 연결을 따로 하거나(같은 주소로 가벼운 요청), 첫 턴 지연을 따로 재서 판단 | 8-8, 13-5 |
+| 26 | (2026-11-05) Bedrock 클라이언트가 `.env.local`에 남은 `AWS_BEARER_TOKEN_BEDROCK`(SCP가 막은 단기 API 키)을 IAM 액세스 키보다 먼저 씀. `new AnthropicBedrock({ awsRegion })`이 환경변수 토큰을 읽고, SDK 우선순위가 토큰 > 액세스 키 (`models/index.ts`, `@anthropic-ai/bedrock-sdk` `client.js`) | **고침** (2026-11-05: `createBedrockClient()`가 `apiKey: null`로 만듦. `index.test.ts`가 남은 변수를 흉내 내고 SigV4 서명을 확인하며, `apiKey: null`을 빼면 실패함을 확인. 실제 IAM 키에 가짜 남은 변수를 넣고 한 번 불러 인증 통과, 모델 사용 자격 403(16-1 #7)까지 감. `.env.local`의 그 줄도 지워짐) | 고치기 전: `LLM_PROVIDER=bedrock` 워커와 `pnpm compare:llm`이 `explicit deny`로 403 | 16-4, 8-8 |
+| 27 | (2026-11-05) Bedrock 경로에서는 LLM 미리 연결이 조용히 빠짐. 플러그인의 `_prewarmImpl`이 `client.models.list`를 부르는데 `AnthropicBedrock`에는 `models`가 없어 TypeError, SDK `LLM.prewarm()`이 오류를 삼킴. 타입 강제 변환(`as unknown as`) 때문에 컴파일러도 못 잡음 | **고침** (2026-11-05: Bedrock일 때 `VoiceAnthropicLLM`이 같은 호스트(`prewarmUrl`)에 서명 없는 HEAD를 보냄. 테스트 추가. 가짜 키 실험에서 6초 쉰 뒤의 첫 요청이 6쌍 모두 빨라짐, 중앙값 약 0.21초 → 0.165초. 서버가 그 연결은 닫아(404, `connection: close`) DNS·TLS 세션만 남음) | 첫 LLM 요청의 연결 비용 약 0.05초. Anthropic 경로의 미리 연결도 #28 때문에 실제로는 이 정도만 남으므로 두 경로가 같아짐 | 8-8, 13-5 |
+| 28 | (2026-11-05) LLM 연결이 **4초 넘게 쉬면 클라이언트가 닫음** → 미리 연결은 4초 안에 첫 요청이 와야 쓰이고, 통화 중에도 턴 사이가 4초를 넘으면 매 턴 TCP·TLS를 다시 맺음. Anthropic 경로는 SDK 0.33의 `agentkeepalive`(`freeSocketTimeout` 기본 4000ms), Bedrock 경로는 Node 내장 fetch(undici `keepAliveTimeout` 기본 4초, AWS가 `Keep-Alive` 헤더를 안 보냄) | 확인됨 (코드 + 가짜 키 실험: 0·3초 쉬면 연결 재사용, 5·6·10초면 새 연결). 실제 통화의 턴 간격과 지연은 미측정 | 다시 맺는 비용 약 0.07~0.1초(TLS 세션 재개 포함)가 턴마다 첫 토큰에 더해질 수 있음. `compare-llm`의 A/B는 호출 사이가 짧아 재사용된 연결로 잰 값. 대응 후보: 고객 말이 끝날 무렵 다시 데우기, 유휴 시간 늘리기(서버가 먼저 끊으면 요청 실패라 재시도 설계 필요) | 8-8, 13-5 |
 
 ---
 

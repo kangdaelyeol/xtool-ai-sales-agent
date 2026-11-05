@@ -124,7 +124,7 @@
 - **`TTS_VOICE`를 비우면 ElevenLabs 기본 음성(영어)이 나옵니다.** 3-4는 꼭 해야 합니다.
 - 음성 후보는 상담팀이 블라인드로 듣고 고르게 합니다(6장).
 - 3-7은 `LLM_PROVIDER=bedrock`을 쓸 때만 필요합니다. 2026-11-05 현재 이 계정에는 Haiku 5.5가 열리지 않아(AWS 지원에 요청) 기본값은 Anthropic API입니다.
-- 3-7에서 **Bedrock API 키는 쓰지 않습니다.** 조직 정책(SCP)이 막고, `.env.local`에 `AWS_BEARER_TOKEN_BEDROCK`이 있으면 IAM 키보다 먼저 쓰입니다. 각 단계의 이유와 겪은 오류는 [학습서 16장](1-study/16-cloud-accounts-iam.md)에 있습니다.
+- 3-7에서 **Bedrock API 키는 쓰지 않습니다.** 조직 정책(SCP)이 막습니다. 코드도 IAM 키로만 인증하도록 `AWS_BEARER_TOKEN_BEDROCK`을 읽지 않습니다(`apiKey: null`, 2026-11-05). 각 단계의 이유와 겪은 오류는 [학습서 16장](1-study/16-cloud-accounts-iam.md)에 있습니다.
 
 ---
 

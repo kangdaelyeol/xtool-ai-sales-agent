@@ -169,7 +169,7 @@ lk agent create --secrets-file .env.agent-secrets
 rm .env.agent-secrets
 ```
 
-- LLM을 Bedrock으로 바꿔 배포한다면 목록에 `LLM_PROVIDER|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_REGION`을 더합니다. `AWS_BEARER_TOKEN_BEDROCK`은 넣지 않습니다. 있으면 IAM 키보다 먼저 쓰여 조직 정책에 막힙니다(학습서 16-4절). 미국 리전에 올리면 도쿄 Bedrock의 이점은 사라집니다.
+- LLM을 Bedrock으로 바꿔 배포한다면 목록에 `LLM_PROVIDER|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_REGION`을 더합니다. `AWS_BEARER_TOKEN_BEDROCK`은 넣지 않습니다. 코드는 이 값을 읽지 않고, 조직 정책도 막습니다(학습서 16-4절). 미국 리전에 올리면 도쿄 Bedrock의 이점은 사라집니다.
 - 처음 실행하면 `livekit.toml`이 생깁니다. 커밋합니다.
 - 리전은 LiveKit Cloud 에이전트 리전(미국·유럽·뭄바이) 중에서 고릅니다. 서울은 없습니다(tech-stack 4-1). LLM이 미국에 있으니 처음에는 미국 리전이 무난합니다. 지연은 `docs/5-poc-results.md` 방식으로 다시 잽니다.
 - 이후 코드 변경은 `lk agent deploy`로 올립니다.

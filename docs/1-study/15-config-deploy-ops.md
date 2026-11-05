@@ -230,7 +230,7 @@ rm .env.agent-secrets
 ```
 
 - (2026-11-05 갱신) 목록은 [6-web-test.md 6장](../6-web-test.md)의 배포 명령과 같습니다. 이전 판에는 `VOICE_RESULT_URL`·`VOICE_AGENT_SECRET`이 빠져 있었습니다. 그대로 배포하면 워커가 "통화 결과 전송 생략"만 남기고 결과를 보내지 않습니다(15-6절).
-- LLM을 Bedrock으로 바꿔 배포한다면 `LLM_PROVIDER`와 `AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`·`AWS_REGION`도 넣습니다. `AWS_BEARER_TOKEN_BEDROCK`은 넣지 않습니다. 있으면 IAM 키보다 먼저 쓰입니다(16-4절).
+- LLM을 Bedrock으로 바꿔 배포한다면 `LLM_PROVIDER`와 `AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`·`AWS_REGION`도 넣습니다. `AWS_BEARER_TOKEN_BEDROCK`은 넣지 않습니다. 코드는 이 값을 읽지 않습니다(16-4절).
 - 이미지에는 `.env.*`가 들어가지 않으므로(15-4절) 비밀값은 **LiveKit Cloud의 비밀값 저장소**로 따로 넘깁니다. 컨테이너에서는 환경변수로 보입니다.
 - 임시 파일 `.env.agent-secrets`는 `.gitignore`에 추가되어 있습니다. 명령이 중간에 실패해 `rm`이 안 돌아도 실수로 커밋되지 않게 하는 **이중 안전장치**입니다.
 - `LIVEKIT_URL`·키는 LiveKit Cloud가 넣어 주므로 빼는 것입니다. 세션 리포트 업로드(15-6절)도 이 값으로 인증됩니다.

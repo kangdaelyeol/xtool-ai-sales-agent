@@ -160,12 +160,13 @@ IAM 액세스 키는 요청에 싣지 않습니다. 대신 요청마다 **서명
 - `ANTHROPIC_API_KEY`는 일부러 읽지 않습니다. 코드 주석에 "Bedrock의 인증 수단이 아닌데, 읽으면 SigV4 서명을 막는다"고 적혀 있습니다. 같은 `.env.local`에 Anthropic 키가 함께 있어도 안전한 이유입니다.
 - 생성자에 `apiKey: null`을 주면 2단계의 환경변수를 보지 않습니다(코드 주석: "`null` clears the key … may not go back to the environment").
 
-### 함정: 남아 있는 베어러 토큰이 IAM 키를 이긴다 (17-2 #26)
+### 함정: 남아 있는 베어러 토큰이 IAM 키를 이긴다 (17-2 #26, 2026-11-05 고침)
 
-2026-11-05 현재 `.env.local`에는 처음 받은 단기 API 키(`AWS_BEARER_TOKEN_BEDROCK`)와 새로 만든 IAM 액세스 키가 **함께** 있습니다. 작업 중인 [src/models/index.ts](../../src/models/index.ts)는 `new AnthropicBedrock({ awsRegion, maxRetries: 0 })`로 만들고, 워커와 측정 스크립트는 시작할 때 `.env.local`을 환경변수로 읽습니다. 그러면 위 순서의 2단계에서 API 키가 먼저 잡혀, **IAM 키가 있어도 SCP에 막힌 방식(#4)으로 호출합니다.**
+Bedrock을 붙인 직후 `.env.local`에는 처음 받은 단기 API 키(`AWS_BEARER_TOKEN_BEDROCK`)와 새로 만든 IAM 액세스 키가 **함께** 있었습니다. 처음 커밋된 코드(`144d25b`)는 클라이언트를 `new AnthropicBedrock({ awsRegion, maxRetries: 0 })`로 만들었고, 워커와 측정 스크립트는 시작할 때 `.env.local`을 환경변수로 읽습니다. 그러면 위 순서의 2단계에서 API 키가 먼저 잡혀, **IAM 키가 있어도 SCP에 막힌 방식(#4)으로 호출합니다.**
 
-- 다른 작업의 확인용 `curl`과 A/B 측정용 임시 스크립트는 이 변수를 지우고(`unset`, `delete process.env.AWS_BEARER_TOKEN_BEDROCK`) 돌려서 드러나지 않았습니다. 커밋된 코드(`144d25b`)와 `pnpm compare:llm`에는 그 처리가 없어, 그대로 돌리면 403(`explicit deny`)을 받을 것입니다(코드로 확인, 실행으로는 미확인).
-- 고치는 방법은 둘입니다. `.env.local`에서 그 줄을 지우거나(어차피 단기 키라 만료됨), 클라이언트를 `apiKey: null`로 만들어 SigV4만 쓰게 합니다. 후자가 "이 경로는 IAM 키로만 인증한다"는 의도를 코드에 남깁니다.
+- 다른 작업의 확인용 `curl`과 A/B 측정용 임시 스크립트는 이 변수를 지우고(`unset`, `delete process.env.AWS_BEARER_TOKEN_BEDROCK`) 돌려서 드러나지 않았습니다.
+- 고치는 방법은 둘이었습니다. `.env.local`에서 그 줄을 지우거나(어차피 단기 키라 만료됨), 클라이언트를 `apiKey: null`로 만들어 SigV4만 쓰게 하는 것입니다. 후자가 "이 경로는 IAM 키로만 인증한다"는 의도를 코드에 남깁니다.
+- **고친 뒤.** 두 가지가 모두 됐습니다. `.env.local`의 그 줄은 지워졌고, [src/models/index.ts](../../src/models/index.ts)의 `createBedrockClient()`가 `apiKey: null`로 만듭니다. [src/models/index.test.ts](../../src/models/index.test.ts)는 남은 변수를 흉내 내고, 요청의 `Authorization` 머리글이 `AWS4-HMAC-SHA256`(SigV4)으로 시작하는지 봅니다. `apiKey: null`을 빼면 이 테스트가 실패하는 것도 확인했습니다. 실제 IAM 키에 가짜 남은 변수를 넣고 한 번 불렀을 때는 인증을 지나 모델 사용 자격 403(#7)까지 갔습니다.
 
 이 함정은 8-8절의 "import 시점에 읽는 환경변수"와 같은 계열입니다. **암묵적으로 읽는 설정은 우선순위가 정해져 있고, 그 순서를 모르면 내가 넣은 값이 아닌 다른 값이 쓰입니다.** 인증 수단처럼 정책과 얽힌 설정은 명시적으로 고르는 편이 안전합니다.
 
@@ -422,7 +423,7 @@ GCP       역할 = 권한 묶음, 서비스 계정 = 프로그램 신원, 서비
 2. 작업 계정의 콘솔 역할 이름은 `AccountFullAccessRole`이었는데 왜 `bedrock:CallWithBearerToken`이 거부됐습니까? IAM 평가 순서의 어느 단계입니까?
 3. 같은 Bedrock API 키가 Mantle 창구에서는 인증을 통과하고 bedrock-runtime에서는 막혔습니다. 왜 그렇습니까?
 4. IAM 키로 바꾼 뒤 받은 "not available for this account"는 무엇을 뜻하고, 왜 이 양식을 관리 계정에서 내야 했습니까?
-5. `.env.local`에 `AWS_BEARER_TOKEN_BEDROCK`과 `AWS_ACCESS_KEY_ID`가 함께 있을 때, 지금의 `new AnthropicBedrock({ awsRegion })`은 어느 쪽으로 인증합니까? 의도대로 IAM 키를 쓰게 하는 방법 두 가지는?
+5. `.env.local`에 `AWS_BEARER_TOKEN_BEDROCK`과 `AWS_ACCESS_KEY_ID`가 함께 있을 때, 처음 코드의 `new AnthropicBedrock({ awsRegion })`은 어느 쪽으로 인증합니까? 의도대로 IAM 키를 쓰게 하는 방법 두 가지는?
 6. SigV4에서 서명 키를 비밀 키로부터 날짜·리전·서비스 순으로 끌어내는 설계의 이점은 무엇입니까?
 7. 지역형 추론 프로필 `jp.`로 부르는 에이전트에게 프로필 ARN만 허용하면 왜 부족합니까?
 8. GCP의 "역할"과 AWS의 "역할"은 어떻게 다릅니까? Eventarc 트리거 배포 실패에서 권한을 받아야 했던 신원은 무엇이었습니까?
@@ -435,7 +436,7 @@ GCP       역할 = 권한 묶음, 서비스 계정 = 프로그램 신원, 서비
 2. 조직 SCP의 명시적 거부 때문입니다. 평가 순서에서 명시적 거부는 어떤 허용보다 먼저 판단되고(2단계), SCP는 계정 안의 모든 신원에게 적용되는 상한이라 역할의 허용이 아무리 넓어도 뒤집지 못합니다.
 3. API 키 사용 동작이 창구마다 다르기 때문입니다. bedrock-runtime은 `bedrock:CallWithBearerToken`, Mantle은 `bedrock-mantle:CallWithBearerToken`입니다. SCP가 앞의 것만 거부하면 Mantle은 막히지 않습니다.
 4. 인증과 IAM 인가는 통과했지만 계정에 Anthropic 모델 사용 자격이 없다는 뜻입니다. 첫 사용 양식이 필요합니다. 작업 계정에서는 양식 조회·제출 API도 SCP에 막혔고, 관리 계정에는 SCP가 적용되지 않으며 거기서 낸 양식은 멤버 계정에 이어지므로 관리 계정에서 냈습니다.
-5. 베어러 토큰(`AWS_BEARER_TOKEN_BEDROCK`)으로 인증합니다. Bedrock SDK에서는 환경변수 토큰이 액세스 키보다 우선합니다. 방법은 `.env.local`에서 그 줄을 지우는 것, 또는 클라이언트를 `apiKey: null`로 만들어 SigV4만 쓰게 하는 것입니다.
+5. 베어러 토큰(`AWS_BEARER_TOKEN_BEDROCK`)으로 인증합니다. Bedrock SDK에서는 환경변수 토큰이 액세스 키보다 우선합니다. 방법은 `.env.local`에서 그 줄을 지우는 것, 또는 클라이언트를 `apiKey: null`로 만들어 SigV4만 쓰게 하는 것입니다. 지금 코드(`createBedrockClient()`)는 후자입니다.
 6. 서명 키가 그 날짜·리전·서비스에서만 쓸모가 있어, 서명 키나 서명이 새도 피해 범위가 좁습니다.
 7. 지역형 프로필은 요청을 도쿄나 오사카의 기본 모델로 보냅니다. 그래서 그 두 리전의 기본 모델 ARN에 대한 허용도 필요합니다. 하나라도 빠지면 그 리전으로 간 요청이 거부됩니다.
 8. GCP의 역할은 권한 묶음이고(AWS의 정책에 가까움), AWS의 역할은 맡을 수 있는 신원입니다(GCP의 서비스 계정에 가까움). 권한을 받아야 했던 것은 Eventarc 서비스 에이전트(`service-<프로젝트 번호>@gcp-sa-eventarc.iam.gserviceaccount.com`)였습니다. 구글 서비스가 내 프로젝트 안에서 쓰는 신원입니다.
