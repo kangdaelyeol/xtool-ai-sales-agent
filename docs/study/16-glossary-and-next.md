@@ -11,6 +11,7 @@
 | 강제 선택 (forced choice) | 고를 값이 정해져 있으면 모델은 그중 하나를 고를 수밖에 없는 상황. "미확인" 같은 출구로 지어내기를 막음 (8) |
 | 거짓 끼어들기 (false interruption) | 소리 때문에 에이전트가 멈췄는데 실제 말(글)은 없던 경우. 2초 뒤 이어서 말함 (7) |
 | 계약 테스트 | 외부와 주고받는 형식을 검증하는 테스트. 가짜 서버로 요청 본문 검사 (14) |
+| 관리 계정 / 멤버 계정 | AWS 조직의 주인 계정 / 그 아래 계정. SCP는 멤버 계정에만 적용 (17) |
 | 구조화 출력 (structured outputs) | 스키마에 맞는 JSON만 내게 하는 API 기능. 원리는 제약 디코딩 (8) |
 | 끝점 검출 (endpointing) | "말 한 덩어리가 끝났다"는 판단. STT도, 세션도 각자 함 (6, 7) |
 | 끼어들기 (barge-in, interruption) | 에이전트가 말하는 중 고객이 말을 끊는 것 (7) |
@@ -20,8 +21,10 @@
 | 디스패치 (dispatch) | 방에 어떤 에이전트를 투입할지 정하는 것. 자동/명시 (4) |
 | 멱등성 (idempotence) | 여러 번 적용해도 결과가 같은 성질. `toSpoken` (10, 12) |
 | 멱등 키 (idempotency key) | 같은 요청인지 가르는 값. 다시 보내도 결과가 한 번만 남게 함. 통화 결과의 `callId` (15) |
+| 명시적 거부 (explicit deny) | IAM 평가에서 어떤 허용보다 먼저 이기는 거부 규칙 (17) |
 | 방 유예 시간 (departure_timeout) | 에이전트가 아닌 마지막 참가자가 나간 뒤 방을 닫기까지 기다리는 시간 (4, 15) |
 | 배포 (deployment) | 같은 에이전트 이름 안의 워커 무리. `production`, `staging`, `lk agent dev`의 `dev-…`. 배정에서 생략하면 `production` (4) |
+| 베어러 토큰 (bearer token) | 가진 사람이 곧 주인인 토큰. 요청에 그대로 실음. Bedrock API 키 (17) |
 | 문맥 편향 (contextual biasing) | STT가 특정 단어를 잘 알아듣게 기울이는 기법. `context.terms` (6) |
 | 미확정/확정 (interim/final) | 스트리밍 STT의 바뀔 수 있는 결과 / 바뀌지 않는 결과 (6) |
 | 변경 감지 테스트 (change-detector test) | 동작이 아니라 지금 상태를 고정해, 고칠 것이 없는데도 실패하는 테스트. 피할 모양 (14) |
@@ -30,13 +33,16 @@
 | 부수 효과의 주인 | 외부 상태를 바꾸는 일(방 삭제 등)을 부르는 곳을 하나로 두는 원칙. 멱등하지 않은 연산일수록 중요 (4) |
 | 상수 시간 비교 | 어디서 달라지든 같은 시간을 들이는 비교. 타이밍 공격 방어. `timingSafeEqual` (15) |
 | 생존자 편향 (survivorship bias) | 끝까지 남은 것만 보고 판단해 생기는 치우침. 느려서 취소된 턴을 빼면 평균이 좋아 보임 (13) |
+| 서비스 계정 / 서비스 에이전트 | GCP에서 프로그램의 신원 / 구글 서비스가 내 프로젝트에서 쓰는 신원 (17) |
 | 선제 생성 (preemptive generation) | 턴 확정 전에 LLM을 미리 돌리는 투기적 실행 (11) |
 | 스펙트로그램 | 시간×주파수×세기로 소리를 그린 그림. 모델의 입력 (2) |
 | 역 텍스트 정규화 (ITN) | "이백구십만" → "2,900,000"처럼 말한 형식을 쓰는 형식으로 (6) |
 | 역압 (backpressure) | 소비가 느릴 때 생산을 늦추는 스트림 흐름 제어 (12) |
 | 오디오 턴 감지 모델 | 소리(의미+운율)로 말 끝 확률을 내는 모델. `inference.TurnDetector` (7) |
+| 워크로드 아이덴티티 연동 | 한 클라우드가 발급한 ID 토큰을 다른 클라우드의 임시 자격 증명으로 바꿔 장기 키 없이 인증 (17) |
 | 유휴 프로세스 프리워밍 | 잡이 오기 전에 자식 프로세스를 미리 띄워 두는 것 (4) |
 | 음성 직통형 (speech-to-speech) | 소리를 받아 바로 소리를 내는 단일 모델 구조 (1) |
+| 자격 증명 체인 (credential provider chain) | SDK가 환경변수 → 파일 → 메타데이터 순으로 키를 찾는 규칙. 앞에서 찾으면 끝 (17) |
 | 잡 (job) | 통화 하나에 해당하는 일 단위. 자식 프로세스에서 실행 (4) |
 | 접속 토큰 (access token) | 방 입장권. 서버가 비밀키로 서명한 JWT. 에이전트 배정(`roomConfig`)과 고객 정보까지 실을 수 있음 (3, 4) |
 | 적응형 끼어들기 (adaptive interruption) | 겹친 소리를 모델로 판정해 맞장구와 끼어들기를 구분 (7) |
@@ -45,13 +51,17 @@
 | 중도 절단 (censoring) | 값은 모르지만 "어느 값보다 크다"는 것만 아는 관측. 첫 토큰 전에 취소된 시도의 `-1` (13) |
 | 즉시 반응 (ack) | 턴 직후 고정 문장("네네.")을 먼저 말해 침묵을 메우는 기법 (11) |
 | 지터 / 지터 버퍼 | 패킷 도착 간격의 흔들림 / 그것을 고르게 하는 대기열 (2) |
+| 최소 권한 (least privilege) | 하는 일에 꼭 필요한 동작·자원만 허용하는 원칙 (17) |
 | 최소 한 번 전달 (at-least-once) | 이벤트가 빠지지는 않지만 두 번 올 수 있는 전달 보장. 받는 쪽이 멱등해야 함 (15) |
+| 최종 일관성 (eventual consistency) | 변경이 결국에는 모든 곳에 반영되지만 바로는 아닐 수 있는 성질. 권한 변경 직후의 실패 (17) |
+| 추론 프로필 (inference profile) | Bedrock에서 요청을 보낼 리전들을 정한 이름. `jp.`(일본 안)·`global.`(어디든) (17) |
 | 텍스트 정규화 | "290만" → "이백구십만"처럼 읽는 말로 바꾸기 (10) |
 | 프롬프트 캐시 | 요청 사이에 같은 앞부분의 계산을 재사용. 접두사 일치 (8) |
 | 프리필 / 디코드 | LLM이 입력을 한꺼번에 처리하는 단계 / 토큰을 하나씩 만드는 단계 (8) |
 | 히스테리시스 | 켜는 기준과 끄는 기준을 다르게 둬 깜빡임을 막는 것 (5) |
 | AEC | 음향 에코 제거. 스피커 소리가 마이크로 되돌아오는 것을 지움 (2, 7) |
 | AgentSession | 통화 하나를 지휘하는 LiveKit 객체 (11) |
+| ARN | AWS 자원 이름. `arn:aws:서비스:리전:계정:자원` (17) |
 | BPE | 자주 나오는 문자열을 토큰으로 묶는 분할 방식 (8) |
 | CER / WER | 글자 / 단어 오류율. 편집 거리 기반 (6) |
 | CTC / RNN-T | 음성 인식의 끝-끝 학습 방식들. RNN-T가 스트리밍에 적합 (6) |
@@ -59,6 +69,7 @@
 | EOU (end of utterance) | 말 끝. `EOUMetrics`의 대상 (7, 13) |
 | G.711 (μ-law, A-law) | 전화망 표준 코덱. 8kHz, 8비트 로그 압축 (2) |
 | G2P | 글자를 발음으로 바꾸기 (10) |
+| IAM | 클라우드의 신원과 권한 관리. AWS에서는 사용자·역할·정책, GCP에서는 주체·역할·바인딩 (17) |
 | ICE / STUN / TURN | NAT 너머 상대를 찾는 WebRTC 절차와 서버들 (3) |
 | job metadata | 디스패치 때 실어 보내는 통화별 정보 문자열 (4) |
 | JWT | 내용(JSON)에 서명을 붙인 토큰 형식. 서명 키가 없으면 내용을 바꿀 수 없음 (3) |
@@ -71,10 +82,13 @@
 | RoomIO | 방의 오디오·자막을 세션 입출력에 잇는 LiveKit 부품 (4) |
 | RTP / SRTP | 실시간 미디어 전송 규약 / 그 암호화 버전 (3) |
 | SBC | 통신사·기업의 SIP 경계 관문 (3) |
+| SCP | AWS 조직이 계정에 거는 권한 상한. 권한을 주지 않고 막기만 함 (17) |
 | SDP | 코덱·주소를 적은 미디어 명세서. offer/answer (3) |
 | SFU | 미디어를 섞지 않고 골라 전달하는 서버. LiveKit (3) |
 | SIP / SIP 트렁크 | 통화 신호 규약 / 통신사가 열어 주는 인터넷 전화 회선 묶음 (3) |
+| SigV4 | 비밀 키를 보내지 않고 요청마다 서명하는 AWS 인증 방식. 날짜·리전·서비스로 좁힌 키로 서명 (17) |
 | SpeechHandle | 에이전트가 말할 것 하나를 나타내는 객체. 대기열의 단위 (11) |
+| STS | AWS 임시 자격 증명 발급 서비스. 역할 맡기, 웹 ID 연동 (17) |
 | SSE | HTTP 응답을 끊지 않고 이벤트를 흘려보내는 형식 (8) |
 | TCU | 턴 구성 단위. 문장·구·단어 (7) |
 | TTFB / TTFT | 첫 오디오까지 / 첫 토큰까지 시간 (8, 10, 13) |
@@ -114,6 +128,8 @@ SDK·플러그인 코드를 읽고 일부를 재현하면서 찾은 것들입니
 | 23 | LiveKit 문서가 `delete_room_on_close`(세션이 닫히면 방 삭제)를 Python 전용으로 표시하지만, Node SDK 1.9.5에도 공개 옵션 `RoomInputOptions.deleteRoomOnClose`로 있음 | 확인됨 (SDK 타입·코드). LiveKit에 문서 피드백 보냄 | Node에서 #21의 한 줄 해결을 문서만 보고는 찾기 어려움 | 4-7, 15-6 |
 | 24 | (originalshq) 판정 트리거가 시간 제한(120초)으로 강제 종료되면 `catch`가 돌지 않아 문서가 `saved`에 머물고, 관리 화면은 2분 뒤 "전송 설정(VOICE_RESULT_URL)을 확인하라"고 안내함 | 확인됨 (코드) | 전송은 성공했는데 엉뚱한 곳을 보게 됨. 문서가 `saved`인 채 시간이 지났으면 "판정이 멈춤, functions 로그 확인"으로 안내를 나누기 | 15-6 |
 | 25 | 끼어들기 판정 로그가 AI 말이 먼저 끝나 판정이 없던 겹침(`agentEnded: true`, `isInterruption`은 늘 false)도 "맞장구로 판단"으로 적음 (`main.ts`) | **고침** (2026-11-04: 끼어들기·맞장구·판단 없음 셋으로 나눠 적음. SDK 통계와 같은 기준) | "안 끊길 때 원인"을 볼 때 판정이 없던 겹침이 모델 오판처럼 보임 | 7-5 |
+| 26 | (2026-11-05) Bedrock 클라이언트가 `.env.local`에 남은 `AWS_BEARER_TOKEN_BEDROCK`(SCP가 막은 단기 API 키)을 IAM 액세스 키보다 먼저 씀. `new AnthropicBedrock({ awsRegion })`이 환경변수 토큰을 읽고, SDK 우선순위가 토큰 > 액세스 키 (`models/index.ts`, `@anthropic-ai/bedrock-sdk` `client.js`) | 확인됨 (SDK 코드). 커밋 `144d25b`에도 그대로. 확인용 `curl`과 A/B 임시 스크립트는 변수를 지우고 돌려 우회함. 실행으로는 미확인 | `LLM_PROVIDER=bedrock` 워커와 `pnpm compare:llm`이 `explicit deny`로 403. 그 줄을 지우거나 클라이언트를 `apiKey: null`로 만듦(의도를 코드에 남기려면 후자) | 17-4, 8-9 |
+| 27 | (2026-11-05) Bedrock 경로에서는 LLM 미리 연결이 조용히 빠짐. 플러그인의 `_prewarmImpl`이 `client.models.list`를 부르는데 `AnthropicBedrock`에는 `models`가 없어 TypeError, SDK `LLM.prewarm()`이 오류를 삼킴. 타입 강제 변환(`as unknown as`) 때문에 컴파일러도 못 잡음 | 확인됨 (코드 + 가짜 키로 오프라인 재현: `Cannot read properties of undefined (reading 'list')`). 지연 영향은 미측정 | 통화의 첫 LLM 요청이 도쿄까지의 연결(TLS)과 자격 증명 모듈 로딩 비용을 냄. A/B 중앙값에는 거의 안 드러남. 감싸는 클래스에서 Bedrock일 때 미리 연결을 따로 하거나(같은 주소로 가벼운 요청), 첫 턴 지연을 따로 재서 판단 | 8-8, 13-5 |
 
 ---
 
@@ -131,6 +147,7 @@ SDK·플러그인 코드를 읽고 일부를 재현하면서 찾은 것들입니
 | `node_modules/@livekit/agents/src/voice/audio_recognition.ts` | 말 끝 판단. `runEOUDetection` |
 | originalshq `functions-xtool/src/voice-call/analyze.ts` | 구조화 출력, 거절 대비, 스키마 설계 (8-11절) |
 | originalshq `functions-xtool/src/endpoints/voice-agent.ts` | 토큰 발급, 비밀키 비교, 멱등 저장, 문서 생성 트리거 (3-7, 15-6절) |
+| `node_modules/@anthropic-ai/bedrock-sdk/client.js`, `core/auth.js`, `core/streaming.js` | 인증 우선순위, 요청 다시 쓰기, 이벤트 스트림 → SSE 변환 (17-4, 17-6절) |
 
 ### LiveKit 문서
 
@@ -154,6 +171,7 @@ SDK·플러그인 코드를 읽고 일부를 재현하면서 찾은 것들입니
 | LLM 추론 | prefill decode, KV cache, prompt caching, speculative decoding |
 | 실시간 전송 | WebRTC ICE, SFU vs MCU, RTP RFC 3550, SIP RFC 3261, SDP offer/answer RFC 3264 |
 | 스트림 | WHATWG Streams, backpressure, async iterators |
+| 클라우드 권한 | AWS IAM policy evaluation logic, service control policies, Signature Version 4, STS AssumeRoleWithWebIdentity, Bedrock cross-Region inference, GCP IAM service agents, workload identity federation |
 
 ---
 
@@ -169,3 +187,4 @@ SDK·플러그인 코드를 읽고 일부를 재현하면서 찾은 것들입니
 6. **보정 위치 옮기기.** `correctTranscript`를 `sttNode`로 옮겨 보고, 보정이 일어나는 턴에서 "preemptive generation invalidated" 경고가 사라지는지 확인합니다. (11장)
 7. **이미지 빌드 확인.** Docker가 있는 환경에서 `docker build`를 돌리고, 이미지 안의 Soniox 플러그인 `dist/stt.js`에 `finalize`가 들어 있는지 확인합니다. 15-4절의 수정 전후로 Dockerfile을 바꿔 가며 lockfile 검사가 무엇을 잡는지도 봅니다. (15장)
 8. **운영 모드로 재기.** `pnpm start`로 띄웠을 때(턴 감지 `v1-mini`, VAD 끼어들기) 맞장구 "네"에 에이전트가 멈추는지 확인하고, `interruption.mode: 'adaptive'`를 넣었을 때와 비교합니다. (7장)
+9. **권한 정책 시험.** 17-5절의 예시 정책을 AWS IAM 정책 시뮬레이터에 넣고, `jp.` 프로필 ARN과 오사카 기본 모델 ARN에 대한 `bedrock:InvokeModelWithResponseStream`이 허용되는지, 프로필을 거치지 않고 오사카 모델을 바로 부르면 거부되는지 확인합니다. (17장)

@@ -223,12 +223,14 @@ RUN pnpm install --frozen-lockfile
 ### LiveKit Cloud 배포: 비밀값을 넘기는 방법
 
 ```bash
-# 부품 키만 담은 임시 파일 (LIVEKIT_* 는 LiveKit Cloud가 넣어 주므로 뺌)
-grep -E '^(ANTHROPIC_API_KEY|ELEVEN_API_KEY|SONIOX_API_KEY|TTS_VOICE)=' .env.local > .env.agent-secrets
+# 부품 키와 결과 전송 설정만 담은 임시 파일 (LIVEKIT_* 는 LiveKit Cloud가 넣어 주므로 뺌)
+grep -E '^(ANTHROPIC_API_KEY|ELEVEN_API_KEY|SONIOX_API_KEY|TTS_VOICE|VOICE_RESULT_URL|VOICE_AGENT_SECRET)=' .env.local > .env.agent-secrets
 lk agent create --secrets-file .env.agent-secrets
 rm .env.agent-secrets
 ```
 
+- (2026-11-05 갱신) 목록은 [web-test.md 6장](../web-test.md)의 배포 명령과 같습니다. 이전 판에는 `VOICE_RESULT_URL`·`VOICE_AGENT_SECRET`이 빠져 있었습니다. 그대로 배포하면 워커가 "통화 결과 전송 생략"만 남기고 결과를 보내지 않습니다(15-6절).
+- LLM을 Bedrock으로 바꿔 배포한다면 `LLM_PROVIDER`와 `AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`·`AWS_REGION`도 넣습니다. `AWS_BEARER_TOKEN_BEDROCK`은 넣지 않습니다. 있으면 IAM 키보다 먼저 쓰입니다(17-4절).
 - 이미지에는 `.env.*`가 들어가지 않으므로(15-4절) 비밀값은 **LiveKit Cloud의 비밀값 저장소**로 따로 넘깁니다. 컨테이너에서는 환경변수로 보입니다.
 - 임시 파일 `.env.agent-secrets`는 `.gitignore`에 추가되어 있습니다. 명령이 중간에 실패해 `rm`이 안 돌아도 실수로 커밋되지 않게 하는 **이중 안전장치**입니다.
 - `LIVEKIT_URL`·키는 LiveKit Cloud가 넣어 주므로 빼는 것입니다. 세션 리포트 업로드(15-6절)도 이 값으로 인증됩니다.
@@ -339,7 +341,7 @@ const secretMatches = (given: string | undefined, expected: string) => {
 
 보통의 문자열 비교는 **앞에서부터 보다가 다른 글자를 만나면 바로** 끝납니다. 그러면 앞 글자가 맞은 추측은 틀린 추측보다 아주 조금 늦게 거절됩니다. 공격자가 응답 시간을 아주 많이 재면 이 차이로 비밀을 한 글자씩 알아낼 수 있습니다. 이것이 **타이밍 공격**입니다. `timingSafeEqual`은 **어디서 달라지든 끝까지 같은 시간을 들여** 비교합니다(상수 시간 비교). 길이를 먼저 보는 것은 `timingSafeEqual`이 길이가 다른 두 값을 받으면 예외를 던지기 때문이고, 그 대가로 길이만은 드러납니다. 네트워크 잡음 때문에 실제로 성공하기는 어려운 공격이지만, 비용이 거의 없는 방어라 비밀 비교에는 늘 이렇게 씁니다.
 
-순서도 볼 만합니다. 공통 껍데기(`endpoint`)가 본문 검사(400)를 먼저 하고, 비밀키 확인(401)은 본 처리에서 합니다. 그래서 키 없는 요청도 검사 오류 문구로 본문의 모양은 알 수 있습니다. 비밀은 아니지만, 보통은 인증을 먼저 합니다.
+순서도 볼 만합니다. 처음 판은 공통 껍데기(`endpoint`)가 본문 검사(400)를 먼저 하고, 비밀키 확인(401)은 본 처리에서 했습니다. 그래서 키 없는 요청도 검사 오류 문구로 본문의 모양을 알 수 있었습니다. (2026-11-05 갱신) originalshq `918c50a`에서 이 함수만 껍데기의 검사를 빼고, **비밀키를 먼저 확인한 뒤** 본 처리 안에서 `validateCallResult`를 부르도록 바뀌었습니다. 코드 주석은 "키 없이 부른 요청에는 입력 검사 문구도 보여 주지 않는다"입니다. 인증을 인가·검사보다 먼저 하는 것은 17-1절의 층 순서와 같습니다. 누군지 모르는 상대에게는 다음 층의 정보를 주지 않습니다.
 
 #### 처음 것만 남기기: `create()`와 멱등 키
 
@@ -442,6 +444,7 @@ LiveKit 자체 부품들(턴 감지, 끼어들기, 노이즈 제거)은 **실패
 | 웹 테스트 접근 | 토큰 발급 함수가 Firebase 로그인 + 관리자 확인. 외부 공개 전 횟수 제한·봇 차단·동의 문구 필요 | 3-7, [web-test.md 7장](../web-test.md#7-주의) |
 | 테스트 직원 고지 | 내부 테스트도 실제 음성이 해외 API로 감 | [web-test.md 7장](../web-test.md#7-주의) |
 | 비용 폭탄 | Anthropic 월 사용 한도, SIP 국제전화 차단·발신 규칙·방화벽 | [telephony-setup.md 7장](../telephony-setup.md#7-보안-요금-폭탄-막기) |
+| 클라우드 자격 증명 (2026-11-05 추가) | AWS는 Bedrock 호출만 허용한 좁은 정책, 장기 키 대신 연동 검토, 쓰지 않는 키 삭제, 예산 알림. 키 값·계정 ID를 공개 레포·스크린샷에 남기지 않음 | 17-5, 17-9 |
 | 공급망 | `allowBuilds`, lockfile 고정, 패치 최소화 | 15-3절 |
 | 고지 | AI·녹음 고지를 고정 문장으로, 끼어들기 막음 | 9장 |
 | 고지 타이밍 | 전화를 **받은 뒤** 고지가 재생되는지 (`waitUntilAnswered`) | 4-6절 |

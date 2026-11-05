@@ -38,13 +38,15 @@ git -C ../originalshq log --oneline <기준 커밋>..HEAD -- \
 | `src/main.ts` (세션 설정, 턴·끼어들기 옵션, 첫 멘트) | 4, 7, 11, 13 |
 | `src/agent.ts`, `src/ack.ts` (훅, llmNode, 즉시 반응) | 11, 12 |
 | `src/prompt.ts` (지시문, 첫 멘트) | 9 |
-| `src/models/*` (공급사 래퍼, STT 확정) | 6, 8, 15 |
+| `src/models/*` (공급사 래퍼, STT 확정, Bedrock 클라이언트) | 6, 8, 15, 17 |
 | `src/glossary.ts`, `src/transcript.ts`, `src/pronunciation.ts` | 6, 10, 12 |
 | `src/call-context.ts` (metadata 계약) | 4 |
 | `src/config.ts` | 15 |
 | `*.test.ts`, `scenarios.yaml`, `.github/workflows/` | 14 |
 | `package.json`·`pnpm-lock.yaml`의 `@livekit/*` 버전, `patches/` | 4, 5, 6, 7, 10, 11 (SDK 내부 동작), 15 |
 | `Dockerfile`, `pnpm-workspace.yaml`, `.gitignore` | 15 |
+| `.env.example`의 인증 변수, `@anthropic-ai/bedrock-sdk` 버전, 배포 비밀값 목록 | 15-5, 17 |
+| `scripts/*` (측정 스크립트) | 8-9, 13 |
 | `docs/poc-results.md` 새 측정 | 수치를 인용한 장 (6, 7, 8, 9, 11, 13) |
 | `docs/*.md` 새 설계 문서 | 1(전체 그림) + 해당 주제 장 |
 | originalshq `functions-xtool/src/endpoints/voice-agent.ts`, `voice-call/*` | 3-7, 4-3(계약 사본), 8-11(판정), 15-6(저장·트리거) |
@@ -59,6 +61,58 @@ git -C ../originalshq log --oneline <기준 커밋>..HEAD -- \
 ---
 
 ## 이력
+
+### 2026-11-05 (9차): 17장 신설(클라우드 계정과 권한), Bedrock 클라이언트·A/B 반영, #26·#27, 배포 비밀값 목록 바로잡기
+
+#### 기준
+
+- 이 레포: 커밋 `7b4feeb`. 8차 작업은 커밋 5개(`cae674f`~`bddb617`)로 들어갔고, 이번 작업 중에 다른 작업이 Bedrock을 커밋 2개로 올림(`144d25b` 공급자·측정 스크립트, `7b4feeb` A/B 결과). 처음에는 그 작업이 미커밋으로 진행 중이라 17장(권한)부터 쓰고, 커밋된 뒤 8·13장과 세팅 문서를 이어서 반영함
+- originalshq: `5da425a`. 받는 쪽 변경은 `918c50a`의 `voice-agent.ts` 하나(비밀키 확인을 입력 검사보다 먼저)
+- AWS 과정의 사실관계: 다른 작업의 대화 기록(오류 본문, 순서, 시각, A/B에 쓴 임시 스크립트)과 AWS 공식 문서(Bedrock API 키·권한, 예시 SCP, 모델 사용 신청, 교차 리전 추론 IAM)
+- 확인 당시 상태: 사용 목적 양식은 처리됨(같은 IAM 키로 Haiku 4.5·Sonnet 4.6 응답). **Haiku 5.5만 이 계정에 열리지 않아** AWS 지원에 요청하는 단계. A/B는 양쪽 Haiku 4.5로 측정
+- 버전: `@livekit/agents` 1.9.5, `@anthropic-ai/bedrock-sdk` 1.1.1
+
+#### 레포에서 바뀐 것 (반영 대상)
+
+| 바뀐 것 | 내용 | 반영 |
+| --- | --- | --- |
+| `144d25b` Bedrock LLM 공급자 | `LLM_PROVIDER=bedrock`, 기본 모델 `jp.anthropic.claude-haiku-5-5`, `VoiceAnthropicLLM`에 `AnthropicBedrock` 클라이언트를 강제 변환으로 끼움, `pnpm compare:llm`, `.env.example` AWS 변수 | 8-8 "연결만 바꿔 끼우기", 8-9 "A/B 도구", 17-4 |
+| `7b4feeb` A/B 결과 | Anthropic API p50 0.77초 vs Bedrock `jp.` 0.66초 (Haiku 4.5, 12회 번갈아), 계정 설정에서 겪은 것 | 13-5 "Bedrock 도쿄 A/B 결과", 17-1 |
+| AWS 계정 준비 (코드 밖) | 무료 → 유료 플랜, 도쿄 API 키(SCP에 막힘) → IAM 사용자 액세스 키, Anthropic 첫 사용 양식을 관리 계정에서 제출, Haiku 5.5만 계속 막힘 | 17-1(거절 표), 17-2, 17-5, 17-6, 17-8 |
+| originalshq `918c50a` | `submitVoiceCallResult`가 비밀키(401)를 본문 검사(400)보다 먼저 확인 | 15-6 |
+
+#### 코드·문서로 확인한 것
+
+- Bedrock SDK의 인증 우선순위: `apiKey` 인자 > `AWS_BEARER_TOKEN_BEDROCK` > 생성자의 AWS 키 > `AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY` > 기본 체인(`client.js` 생성자, `core/auth.js`). `apiKey: null`이면 환경변수 토큰을 보지 않음. `ANTHROPIC_API_KEY`는 일부러 읽지 않음
+- → **16-2 #26 (새로)**: `.env.local`에 남은 단기 API 키가 IAM 키보다 먼저 쓰임. 커밋된 코드에도 그대로이고, 확인용 `curl`과 A/B 임시 스크립트는 변수를 지워 우회함
+- 플러그인은 끼운 클라이언트로 `messages.create`, `models.list`(미리 연결), `baseURL`(지표 라벨)만 씀(`dist/llm.js`). `AnthropicBedrock`에는 `models`가 없음
+- → **16-2 #27 (새로)**: Bedrock 경로의 LLM 미리 연결이 TypeError로 실패하고 SDK `LLM.prewarm()`이 삼킴. 가짜 키로 오프라인 재현함. 강제 변환 때문에 컴파일러도 못 잡음
+- 플러그인의 `maxRetries` 기본 0은 "the framework owns retries"(`dist/llm.d.ts`)
+- SDK가 Messages 요청을 `/model/{id}/invoke-with-response-stream`으로 다시 쓰고 `anthropic_version`을 넣음(`client.js`), 응답의 AWS 이진 이벤트 스트림을 SSE로 바꿈(`core/streaming.js`). `thinking`·`output_config`·맨 위 `cache_control`은 본문에 그대로 남음 → Bedrock이 받는지 미확인
+- A/B 측정은 운영 경로가 아니라 기본 `anthropic.LLM` + Haiku 4.5 + `maxTokens: 300`으로 함(다른 작업의 임시 스크립트)
+- AWS 문서: API 키 사용은 `bedrock:CallWithBearerToken`과 `bedrock-mantle:CallWithBearerToken`이 따로 → 같은 키가 Mantle에서는 통과한 이유. Anthropic 첫 사용 양식은 계정마다 또는 관리 계정에서 한 번. 서버리스 모델 첫 호출의 자동 구독에는 `aws-marketplace:*` 권한 필요, 최대 15분
+- 학습서 15-5의 LiveKit Cloud 비밀값 명령이 [web-test.md](../web-test.md) 6장보다 낡아 `VOICE_RESULT_URL`·`VOICE_AGENT_SECRET`이 빠져 있었음. 그대로 배포하면 통화 결과를 보내지 않음
+
+#### 학습서·문서에서 고친 곳
+
+| 장·문서 | 고친 곳 |
+| --- | --- |
+| 17 | **새 장**: 인증과 인가, 실제로 받은 거절 여섯 번과 전파 대기 표(같은 문구 다른 원인을 대조 비교로 가르기), AWS 계정·조직·리전, 자격 증명 종류(액세스 키·STS·Bedrock API 키), SigV4, 자격 증명 체인과 Bedrock SDK 우선순위(#26), IAM 평가 순서와 SCP, 최소 권한 예시 정책, 모델 사용 신청·추론 프로필·두 창구, GCP 서비스 계정·서비스 에이전트(Eventarc 사례), 권한 전파 지연, 운영에서 키 다루기, 확인 문제 9개 |
+| 8 | 8-8 **"응용: 연결만 바꿔 끼우기, Bedrock 클라이언트" 신설** (플러그인이 클라이언트로 하는 일 세 가지, 타입 강제 변환의 대가, 옵션이 그대로 흘러감, `maxRetries: 0`), 8-9 **"A/B 도구: compare-llm" 신설** (번갈아 재기, p50·p90·최소의 뜻, 작은 표본) |
+| 13 | 13-5 17장 연결, **"Bedrock 도쿄 A/B 결과" 신설** (최소와 중앙값의 차이로 거리 몫과 서버 대기 가르기, 운영에 옮기기 전 남은 확인 세 가지) |
+| 15 | 15-5 비밀값 명령에 `VOICE_RESULT_URL`·`VOICE_AGENT_SECRET` 추가, Bedrock 배포 때 넣을 것·넣지 말 것, 15-6 결과 함수의 인증 순서 갱신, 15-8 "클라우드 자격 증명" 줄 |
+| 16 | 16-1 용어 14개 추가 (관리 계정, 명시적 거부, 베어러 토큰, 서비스 계정·에이전트, 워크로드 아이덴티티 연동, 자격 증명 체인, 최소 권한, 최종 일관성, 추론 프로필, ARN, IAM, SCP, SigV4, STS), 16-2 #26·#27 추가, 16-3 읽을 코드·검색어, 16-4 실습 9 |
+| README | 목차에 17장, 8장 설명, 분량, 읽는 순서(처음부터, 운영 준비, 클라우드 권한만) |
+| [setup-checklist.md](../setup-checklist.md) | 3-7 AWS Bedrock 계정·키, 4장 `.env.local`의 Bedrock 변수, 6장 비교표에 Anthropic API ↔ Bedrock |
+| [web-test.md](../web-test.md) | 6장 LiveKit Cloud 배포에 Bedrock 변수 안내 |
+
+#### 새로 남긴 확인 필요
+
+- Haiku 5.5가 열리면: #26을 정리한 뒤 `LLM_PROVIDER=bedrock pnpm check:llm`으로 운영 경로가 Bedrock에서 400 없이 도는지(특히 맨 위 `cache_control` 자동 캐시), 그다음 `pnpm compare:llm`으로 Haiku 5.5끼리 A/B
+- #27의 영향: Bedrock 경로에서 통화의 첫 LLM 요청 첫 토큰이 두 번째 요청보다 얼마나 느린지
+- `AmazonBedrockLimitedAccess`가 첫 호출의 Marketplace 구독 권한을 포함하는지 (좁은 정책으로 바꿀 때 빠뜨리기 쉬움)
+- 17-5절 예시 정책을 실제 호출(또는 정책 시뮬레이터)로 검증
+- GKE에 올릴 경우 워크로드 아이덴티티 연동으로 AWS 장기 키 없이 Bedrock을 부를 수 있는지
 
 ### 2026-11-04 (8차): #21·#20·#11·#25 수정, 방 삭제를 한곳으로, 지연 기록 거르기, 7차 누락 보충
 

@@ -119,9 +119,12 @@
 | 3-4 | ElevenLabs 한국어 음성 | Voice Library에서 언어 Korean으로 걸러 후보 2~3개를 My Voices에 추가 → 각 음성의 Voice ID 복사 | `TTS_VOICE` |
 | 3-5 | **Soniox** | 가입, 최소 금액 충전, API 키 발급 | `SONIOX_API_KEY` |
 | 3-6 | (비교용) 리턴제로·Typecast | 무료 가입만 해 둡니다. 연결 코드는 아직 없습니다 | — |
+| 3-7 | (선택) **AWS Bedrock** (LLM을 도쿄에서 처리) | 유료 플랜 전환 → 예산 알림(월 $10 등) → 도쿄 리전에서 Anthropic 첫 사용 양식 제출(조직이면 관리 계정에서) → IAM 사용자(콘솔 접근 없음)에 Bedrock 호출 정책 → 액세스 키 발급(용도: AWS 외부 애플리케이션) | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION=ap-northeast-1` |
 
 - **`TTS_VOICE`를 비우면 ElevenLabs 기본 음성(영어)이 나옵니다.** 3-4는 꼭 해야 합니다.
 - 음성 후보는 상담팀이 블라인드로 듣고 고르게 합니다(6장).
+- 3-7은 `LLM_PROVIDER=bedrock`을 쓸 때만 필요합니다. 2026-11-05 현재 이 계정에는 Haiku 5.5가 열리지 않아(AWS 지원에 요청) 기본값은 Anthropic API입니다.
+- 3-7에서 **Bedrock API 키는 쓰지 않습니다.** 조직 정책(SCP)이 막고, `.env.local`에 `AWS_BEARER_TOKEN_BEDROCK`이 있으면 IAM 키보다 먼저 쓰입니다. 각 단계의 이유와 겪은 오류는 [학습서 17장](study/17-cloud-accounts-iam.md)에 있습니다.
 
 ---
 
@@ -139,6 +142,12 @@ ANTHROPIC_API_KEY=sk-ant-...
 ELEVEN_API_KEY=...
 SONIOX_API_KEY=...
 TTS_VOICE=<3-4에서 고른 Voice ID>
+
+# LLM을 Bedrock 도쿄로 쓸 때만 (3-7)
+# LLM_PROVIDER=bedrock
+# AWS_ACCESS_KEY_ID=AKIA...
+# AWS_SECRET_ACCESS_KEY=...
+# AWS_REGION=ap-northeast-1
 
 # 나머지(STT_/LLM_/TTS_ 변수)는 비워 두면 기본 구성입니다.
 ```
@@ -204,6 +213,7 @@ lk agent simulate text --scenarios scenarios.yaml
 |---|---|
 | STT: Soniox ↔ Deepgram(LiveKit Inference) | `STT_PROVIDER=livekit` |
 | LLM: Haiku 5.5 ↔ GPT-6 Luna | `LLM_PROVIDER=livekit` |
+| LLM: Anthropic API ↔ Bedrock 도쿄 | `LLM_PROVIDER=bedrock` (3-7). LLM만 떼어 번갈아 재려면 `pnpm compare:llm` |
 | LLM: 생각 모드 | `LLM_THINKING=adaptive`, `LLM_EFFORT=low` 또는 `medium` |
 | TTS: ElevenLabs 음성 후보 | `TTS_VOICE=<다른 Voice ID>` |
 | TTS: ElevenLabs ↔ Cartesia(LiveKit Inference) | `TTS_PROVIDER=livekit` (+ Cartesia 한국어 voice) |

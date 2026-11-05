@@ -357,6 +357,46 @@ dotenv.config({ path: '.env.local' });      // ← 2. 그다음에야 본문 실
 
 `import` 문은 파일 어디에 쓰든 **본문 코드보다 먼저** 처리됩니다(호이스팅). 그래서 플러그인 모듈이 최상위에서 `process.env.ANTHROPIC_API_KEY`를 읽어 기본값으로 저장해 두면, 그 시점에는 아직 `.env.local`이 읽히지 않아 값이 비어 있습니다. 해결은 **값이 채워진 뒤(생성자 호출 시점)에 다시 읽어서 명시적으로 넘기는 것**입니다. Soniox 플러그인도 같은 문제가 있어 같은 방법으로 고쳤습니다([poc-results.md](../poc-results.md) "고친 버그", [src/models/index.ts](../../src/models/index.ts)). [src/config.ts](../../src/config.ts)의 `loadConfig()`가 "dotenv를 읽은 뒤에 호출합니다"라고 주석을 단 것도 같은 이유입니다.
 
+### 응용: 연결만 바꿔 끼우기, Bedrock 클라이언트 (2026-11-05 추가)
+
+LLM을 일본에서 처리하려고 Amazon Bedrock을 붙일 때(13-5절, 17장) 같은 생각을 한 번 더 썼습니다. 계정·권한 쪽은 17장에 있고, 여기서는 코드만 봅니다.
+
+**문제.** LiveKit의 AWS 플러그인은 Node SDK를 지원하지 않습니다. 다른 플러그인을 새로 쓰면 위의 `VoiceAnthropicLLM`(생각 모드·effort·자동 캐시)도 다시 만들어야 합니다.
+
+**발견.** Anthropic 플러그인 옵션에는 `client`(미리 만든 Anthropic SDK 클라이언트)가 있습니다. 플러그인 코드(`dist/llm.js`)를 보면 그 클라이언트로 하는 일은 셋뿐입니다.
+
+| 플러그인이 쓰는 것 | 언제 | Bedrock 클라이언트(`AnthropicBedrock`)에서 |
+| --- | --- | --- |
+| `client.messages.create({ …, stream: true })` | 매 턴의 요청 | 있음. SDK가 Bedrock 모양으로 다시 씀(17-6절) |
+| `client.models.list({ limit: 1 })` | `_prewarmImpl`: 세션이 시작될 때 미리 연결 | **없음.** TypeError가 나지만 SDK의 `prewarm()`이 조용히 삼킴 (16-2 #27) |
+| `client.baseURL` | `provider` 이름(지표 라벨) | `bedrock-runtime.ap-northeast-1.amazonaws.com` |
+
+**해결.** 플러그인도, 감싸는 클래스도 그대로 두고 클라이언트만 바꿉니다([src/models/index.ts](../../src/models/index.ts)).
+
+```ts
+case 'bedrock':
+  return new VoiceAnthropicLLM({
+    model: config.model, // 기본 jp.anthropic.claude-haiku-5-5
+    effort: config.effort,
+    thinking: config.thinking,
+    maxTokens: 2048,
+    // 플러그인은 @anthropic-ai/sdk 0.33 타입을 기대하지만, 쓰는 것은 messages.create 스트림뿐입니다.
+    client: new AnthropicBedrock({
+      awsRegion: process.env.AWS_REGION || 'ap-northeast-1',
+      maxRetries: 0,
+    }) as unknown as NonNullable<anthropic.LLMOptions['client']>,
+  });
+```
+
+- `maxRetries: 0`은 플러그인의 기본값과 같습니다. 재시도는 LiveKit이 연결 옵션으로 하므로, SDK까지 재시도하면 실패한 턴이 겉으로 드러나지 않은 채 몇 배로 늦어집니다.
+- 인증은 생성자에 넣지 않고 환경변수에서 찾게 둡니다. 그 찾는 순서 때문에 생긴 함정(16-2 #26)은 17-4절에 있습니다.
+
+**타입 강제 변환의 대가.** `@anthropic-ai/bedrock-sdk` 1.1.1은 `@anthropic-ai/sdk` 1.x 위에 만들어졌고, 플러그인의 타입은 0.33의 `Anthropic` 클래스를 가리킵니다. TypeScript는 모양(구조)으로 타입을 비교하는데, 두 버전의 클래스는 멤버가 달라 서로 대입되지 않습니다. 그래서 `as unknown as …`로 **"이 경계에서는 검사하지 마라"**고 컴파일러에 알립니다. 관련 없는 두 타입 사이의 직접 변환은 TypeScript가 거부하므로 `unknown`을 한 번 거칩니다. `NonNullable<anthropic.LLMOptions['client']>`는 0.33 SDK를 따로 import하지 않고 플러그인이 선언한 타입을 그대로 꺼내 쓰는 방법입니다.
+
+대가는 바로 위 표에 있습니다. 플러그인이 `messages` 말고 다른 것을 쓰면 컴파일러가 알려 주지 않습니다. 실제로 `models.list`가 그랬고, 오류마저 삼켜져 아무 표시 없이 미리 연결만 빠졌습니다. 강제 변환은 **검사를 사람에게 넘기는 것**이라, 그 경계를 지키는 장치가 따로 있어야 합니다. 예를 들어 플러그인을 올릴 때마다 Bedrock으로 한 턴을 돌려 보거나, 플러그인이 부르는 메서드가 Bedrock 클라이언트에 있는지 확인하는 테스트(14장)를 둡니다.
+
+**옵션은 그대로 흘러간다.** `VoiceAnthropicLLM`이 넣는 `thinking`, `output_config.effort`, 맨 위 `cache_control`(8-4절의 자동 캐시)은 요청 본문에 실립니다. Bedrock SDK는 본문에서 `model`·`stream`만 빼서 경로로 옮기고 `anthropic_version`을 더하므로(17-6절), 나머지는 그대로 Bedrock에 갑니다. **Bedrock이 이 셋을 Haiku 5.5에서 받아 주는지는 아직 확인되지 않았습니다.** 2026-11-05의 A/B(13-5절)는 Haiku 5.5가 이 계정에 열리지 않아, 이 옵션이 없는 기본 플러그인과 Haiku 4.5로 쟀기 때문입니다. 특히 자동 캐시는 Anthropic API 기능이라 Bedrock이 모르는 필드로 보고 400을 낼 수도 있습니다. Haiku 5.5가 열리면 #26을 먼저 정리하고 `LLM_PROVIDER=bedrock pnpm check:llm`으로 운영 경로를 한 번 돌려 봅니다. `check:llm`은 400 설정 거절을 바로 보여 주도록 만들어져 있습니다(8-9절).
+
 ---
 
 ## 8-9. 측정 도구: check-llm
@@ -377,6 +417,15 @@ if (chunk.delta?.content) {
   text += chunk.delta.content;
 }
 ```
+
+### A/B 도구: compare-llm (2026-11-05 추가)
+
+[scripts/compare-llm.ts](../../scripts/compare-llm.ts)(`pnpm compare:llm`)는 같은 대화를 Anthropic API와 Bedrock `jp.`에 **번갈아** 보내 첫 토큰 시간을 비교합니다.
+
+- **번갈아 부르는 이유.** 서버 혼잡은 시간에 따라 바뀝니다. A를 10번 다 부르고 B를 10번 부르면 "공급자 차이"와 "시간대 차이"가 섞여 가를 수 없습니다. A, B, A, B…로 엮으면 시간에 따른 흔들림이 양쪽에 고르게 들어갑니다. 실험 설계에서 교란 변수를 막는 기본 기법입니다.
+- **세 숫자.** 중앙값(p50)은 튀는 값에 강하고, p90은 꼬리(13-6절)를, 최소는 "모든 것이 잘 맞았을 때"의 바닥을 보여 줍니다. 최소의 차이는 거리(네트워크) 몫에 가깝고, 중앙값의 차이는 거기에 서버 대기까지 합친 몫입니다.
+- **표본이 작습니다.** 10~12회면 p90은 사실상 "두 번째로 느린 값"입니다. 0.1초 안쪽 차이는 다시 재서 같은 방향이 나오는지 봐야 합니다.
+- **주의.** 이 스크립트는 운영과 같은 `createLLM`을 써서, 인증도 운영과 같은 순서로 찾습니다. 그래서 `.env.local`에 Bedrock API 키가 남아 있으면 16-2 #26에 걸립니다. 2026-11-05의 실제 측정은 그 변수를 지운 임시 스크립트로 했습니다.
 
 ---
 
