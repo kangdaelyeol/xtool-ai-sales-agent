@@ -1,4 +1,6 @@
+import { AnthropicBedrock } from '@anthropic-ai/bedrock-sdk';
 import { inference, type llm, type stt, type tts } from '@livekit/agents';
+import type * as anthropic from '@livekit/agents-plugin-anthropic';
 import * as elevenlabs from '@livekit/agents-plugin-elevenlabs';
 import type { LlmConfig, SttConfig, TtsConfig } from '../config.ts';
 import { KEYTERMS } from '../glossary.ts';
@@ -33,6 +35,20 @@ export function createLLM(config: LlmConfig): llm.LLM {
         thinking: config.thinking,
         // 생각 모드를 켜면 생각 토큰도 여기에 포함됩니다.
         maxTokens: 2048,
+      });
+    case 'bedrock':
+      // 같은 Anthropic 플러그인에 Bedrock 클라이언트만 바꿔 끼웁니다. 인증은 IAM 키(AWS_ACCESS_KEY_ID·
+      // AWS_SECRET_ACCESS_KEY)입니다. Bedrock API 키는 조직 정책(SCP)이 이 경로에서 막습니다.
+      return new VoiceAnthropicLLM({
+        model: config.model,
+        effort: config.effort,
+        thinking: config.thinking,
+        maxTokens: 2048,
+        // 플러그인은 @anthropic-ai/sdk 0.33 타입을 기대하지만, 쓰는 것은 messages.create 스트림뿐입니다.
+        client: new AnthropicBedrock({
+          awsRegion: process.env.AWS_REGION || 'ap-northeast-1',
+          maxRetries: 0,
+        }) as unknown as NonNullable<anthropic.LLMOptions['client']>,
       });
     case 'livekit':
       return new inference.LLM({

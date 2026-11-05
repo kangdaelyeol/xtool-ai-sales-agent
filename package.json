@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "dev": "lk agent dev",
     "start": "node src/main.ts start",
-    "check:llm": "node scripts/check-llm.ts"
+    "check:llm": "node scripts/check-llm.ts",
+    "compare:llm": "node scripts/compare-llm.ts"
   },
   "engines": {
     "node": ">=24.0.0",
@@ -31,6 +32,7 @@
     "vitest": "^4.1.11"
   },
   "dependencies": {
+    "@anthropic-ai/bedrock-sdk": "1.1.1",
     "@livekit/agents": "^1.9.3",
     "@livekit/agents-plugin-anthropic": "^1.9.5",
     "@livekit/agents-plugin-elevenlabs": "^1.9.5",
