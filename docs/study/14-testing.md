@@ -35,7 +35,7 @@ pnpm test        # vitest --run, API 키 없이 돎
 | `src/prompt.test.ts` | `openingLine`, `parseCallContext`, `buildInstructions`, `cleanKnowledge`, `loadKnowledge` | 법적 고지 포함, 이름 없을 때 호칭, metadata 실패 처리, **캐시용 접두사 고정**, 지식은 고객 정보 앞·비면 칸 없음, **실제 지식 파일에 작성 안내가 새지 않음** (2026-11-04 고침, 아래) |
 | `src/models/anthropic.test.ts` | `VoiceAnthropicLLM` | 요청 본문에 thinking·effort·캐시가 들어가는지, temperature 없음, 생각 블록이 답에 안 섞임, prefill 방지 |
 | `src/call-guard.test.ts` (2026-11-03 추가) | `guardCall` | 무응답이면 끊음, **"여보세요?" 도중 대답하면 끊지 않음**, 최대 길이에 끊음, 통화가 닫히면 타이머 정지 |
-| `src/call-result.test.ts` (2026-11-03 추가) | `transcriptOf` | 대화록에 고객·AI 말만 순서대로, 지시문·빈 말 제외 |
+| `src/call-result.test.ts` (2026-11-03 추가, 11-04 보강) | `transcriptOf`, `addLatency` | 대화록에 고객·AI 말만 순서대로, 지시문·빈 말 제외. 지연 기록은 반올림해 쌓고 `-1`은 빼되 취소된 시도의 값은 남김(13-5절) |
 
 ### 좋은 단위 테스트의 특징 (이 프로젝트에서 배울 점)
 

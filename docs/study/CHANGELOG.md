@@ -19,6 +19,8 @@
 git log --oneline <기준 커밋>..HEAD
 git diff --stat <기준 커밋> -- . ':!docs/study'
 git status --short                     # 아직 커밋 안 된 변경
+# 지난 기준에 미커밋 작업 트리가 있었으면, 커밋되기 전에 더 바뀌었을 수 있음 (7차에서 놓친 끼어들기 로그)
+git log -p <기준 커밋>..HEAD -- src    # 커밋마다 지난번 본 것과 다른 줄이 있는지
 
 # 2. SDK·플러그인 버전이 바뀌었나 (바뀌면 SDK 내부 설명 장을 다시 확인)
 grep -E '"@livekit/' package.json
@@ -57,6 +59,64 @@ git -C ../originalshq log --oneline <기준 커밋>..HEAD -- \
 ---
 
 ## 이력
+
+### 2026-11-04 (8차): #21·#20·#11·#25 수정, 방 삭제를 한곳으로, 지연 기록 거르기, 7차 누락 보충
+
+#### 기준
+
+- 이 레포: 커밋 `354eca6` (7차 작업이 커밋 3개 `ce8c7c7`·`71a435d`·`354eca6`로 들어감) + 이번 미커밋 수정 (`src/main.ts`, `src/agent.ts`, `src/call-result.ts`, `src/call-result.test.ts`)
+- originalshq: `d7054a1` (7차와 같음, 받는 쪽 변경 없음)
+- 7차에서 빠뜨린 것: 커밋 `ce8c7c7`의 끼어들기 판정 로그. 7차는 작업 트리의 `minDuration` 변경만 봤고, 로그는 커밋되기 전에 더해져 같은 커밋에 들어감 → 이번에 7장·11장에 보충. 갱신 절차 1단계에 `git log -p` 확인을 더함
+- 확인 당시 상태: `pnpm test` **32개** 통과(`addLatency` 4개 추가, `-1` 거르기를 빼면 실패함을 확인), `typecheck`·`lint`·`format:check` 통과. `lk agent debugger`로 "운전 중이라 통화 곤란 → 내일 다시" 대화에서 `end_call` 호출 뒤 세션이 오류 없이 닫힘을 확인 (텍스트 모드라 방 삭제 경로는 지나지 않음)
+- 버전: `@livekit/agents` 1.9.5
+
+#### 이번에 고친 것 (이 작업)
+
+| 파일 | 변경 | 관련 |
+| --- | --- | --- |
+| `src/main.ts` | `inputOptions.deleteRoomOnClose: true`. `endCall`이 종료 콜백에 등록하던 `ctx.deleteRoom()`을 지움 | 16-2 #21 → 고침, #12 → 대응 |
+| `src/agent.ts` | `createEndCallTool({ deleteRoom: false })`. 방은 세션이 닫힐 때 한 번만 지움 | 4-7, 9-6 |
+| `src/call-result.ts` | `addLatency`가 0 미만(`-1`, 값 없음)을 뺌. `cancelled`는 남김(빼면 느린 턴이 골라 빠짐) | 16-2 #20 → 고침, 13-5 |
+| `src/main.ts` | 즉시 반응 미리 합성에 세션과 다른 TTS 객체(`ackTts`)를 쓰고, 다 만든 뒤 닫음. 미리 합성 몫이 지연 기록에 섞이지 않음 | #20, 13-5 |
+| `src/call-result.test.ts` | `addLatency` 테스트 4개 (반올림, `-1` 제외, 취소돼도 값 유지, 다른 지표 무시) | 14-2 |
+| `src/main.ts` | 끼어들기 판정 로그를 끼어들기·맞장구·**판단 없음**(`agentEnded`) 셋으로 나눔 | 16-2 #25 (새로, 고침), 7-5 |
+| `src/main.ts` | 아무 일도 안 하던 `await ctx.connect()`를 지우고 "연결은 `session.start()`가 함" 주석 | 16-2 #11 → 고침, 4-6 |
+| `docs/poc-results.md`, `docs/web-test.md` | 끼어들기 최소 길이 0.2초 기록, 웹 테스트 5장에 "코드 변경 뒤 첫 웹 통화에서 볼 것" 표 | — |
+
+#### SDK 코드로 확인한 것
+
+- RoomIO는 세션의 `Close` 이벤트에서 방 삭제를 시작하고, 자기를 닫을 때 그 삭제를 최대 10초(`DEFAULT_API_CONNECT_OPTIONS.timeoutMs`) 기다림(`voice/room_io/room_io.ts`). 넘으면 경고만 남김.
+- 방이 지워지면 에이전트 쪽 `RoomEvent.Disconnected`로 잡이 끝남(`ipc/job_proc_lazy_main.ts`). 그래서 고객이 먼저 끊어도 유예 시간을 기다리지 않음.
+- `JobContext.deleteRoom()`은 오류를 안에서 받아 경고("error while deleting room")만 남김. 방을 두 곳에서 지우면 두 번째가 통화마다 이 경고를 냄 → 한곳으로 모은 이유.
+- `end_call` 도구의 `deleteRoom` 기본값은 `true`(`beta/tools/end_call.ts`).
+- LLM·TTS 지표의 `cancelled`는 요청의 abort 여부(`llm/llm.ts`, `tts/tts.ts`). SDK도 이것을 "끊김(interrupted)"으로 기록함. 첫 토큰이 나온 뒤 취소됐으면 `ttftMs`는 실제 값.
+- 디버거 로그 비교: 고치기 전(`13:10` 실행)에는 첫 멘트 앞에 TTS 지표 3건(소리 0.64·0.88·1.28초, 첫 음성 약 1.1초)이 미리 합성 몫으로 들어갔고, 고친 뒤에는 첫 멘트·첫 질문 2건만 남음.
+- `OverlappingSpeech`는 겹침마다 끼어들기(겹치는 중 판정)·맞장구(고객 소리가 먼저 그침)·판단 없음(`agentEnded`: 에이전트 말이 먼저 끝남, `isInterruption`은 늘 false)으로 옴(`inference/interruption/interruption_stream.ts`). SDK 통계는 판단 없음을 맞장구 수에서 뺌.
+- `session.start()`는 방이 연결되지 않았으면 잡 문맥으로 `ctx.connect()`를 부름(`voice/agent_session.ts`). 디버거 로그 "Auto-connecting to room via job context"로도 확인. 스타터 첫 판의 `main.ts`에 뒤이은 `ctx.connect()`가 있었음.
+- 디버거 로그에서 첫 멘트의 TTS 첫 음성 0.78~0.84초, 다음 말 0.18~0.23초 → 16-2 #9의 실측 단서.
+- 세션은 자기 TTS 객체의 `metrics_collected`만 구독(`voice/agent_activity.ts`). 발화 안의 지표에는 `speechId`가 붙음(`AsyncLocalStorage`). ElevenLabs `synthesize()`는 HTTP 요청이라 세션의 웹소켓 연결과 무관(플러그인 `tts.ts`).
+
+#### 학습서에서 고친 곳
+
+| 장 | 고친 곳 |
+| --- | --- |
+| 3 | 3-7 "통화가 끝난 뒤 화면" 단락: 두 경로 모두 바로 끝남 |
+| 4 | 4-6 RoomIO 표의 연결 줄(연결하는 것은 세션)과 `ctx.connect()` 정리, 4-7 종료 콜백 단락, "고객이 전화를 끊으면"에 고친 뒤 순서, SIP 사유 표 `ROOM_DELETED` 줄, "에이전트가 먼저 끊을 때" 표·코드 갱신, **"방 삭제를 한곳으로 모으기" 신설** (부수 효과의 주인은 하나, 멱등하지 않은 연산) |
+| 7 | 7-5 **"판정을 로그로 보기" 신설** (7차에서 빠진 `ce8c7c7`의 판정 로그: 이벤트 세 경우, 값의 뜻, "안 끊김" 증상 가르기, "아니다"와 "모른다" 나누기) |
+| 9 | 9-6 `end_call` 코드와 설계 표에 `deleteRoom: false` |
+| 11 | 이벤트 표 `Close` 줄과 `OverlappingSpeech`·`AgentFalseInterruption` 줄, 11-4 선제 생성 4번(취소된 시도 지표를 일부러 남김) |
+| 13 | 13-5 **"지연 기록에 섞이는 값"을 고친 뒤 기준으로 다시 씀**, **"무엇을 빼면 안 되나: 중도 절단과 생존자 편향" 신설** (`cancelled`를 빼려던 이전 판을 뒤집은 이유, `speechId` 거르기 대신 객체 분리를 고른 이유) |
+| 14 | 14-2 표 `call-result.test.ts` 줄 |
+| 15 | 15-5 "고객이 먼저 끊으면", 15-6 **"끝나는 경로별 시간표"를 고친 뒤 기준으로 다시 씀** (고치기 전 순서는 인용으로 남김), 입력 상한·평균 지연 단락 |
+| 16 | 16-2 #12 → 대응, #11·#20·#21 → 고침, #25 추가(고침), #9에 실측 단서. 용어 3개 추가 (부수 효과의 주인, 생존자 편향, 중도 절단) |
+
+#### 새로 남긴 확인 필요
+
+- 실제 웹 통화에서 "통화 끝내기"를 누른 뒤 에이전트 로그에 `deleting room on agent session close`가 찍히고, 결과가 몇 초 안에 뜨는지 (7차의 "#21 지연 실측"을 대신함)
+- AI가 끊는 경로에서 `error while deleting room` 경고가 더는 나지 않는지
+- 실제 통화에서 즉시 반응 미리 합성이 여전히 첫 턴 전에 끝나는지(디버거에서는 경고 "즉시 반응 음성을 미리 만들지 못했습니다" 없음)
+- 실제 통화의 끼어들기 로그에서 세 판정이 어떤 비율로 나오는지, "맞장구로 판단" 중 확률이 기준 근처인 경우가 얼마나 되는지 (한국어 맞장구 표본)
+- `-1`(값 없음) 건수: 기록 모양을 바꾸지 않아 Firestore에는 없음. 필요하면 `metrics.logMetrics` 로그로 세거나 originalshq와 `CallLatency`에 칸을 더할지 정하기
 
 ### 2026-11-04 (7차): #22 수정, 받는 쪽 코드 읽기, 끼어들기 200ms, 발견 사항 확인
 

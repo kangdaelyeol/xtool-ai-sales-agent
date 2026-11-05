@@ -253,6 +253,59 @@ LiveKit 문서는 이 모델이 "영어에서 더 나을 수 있지만 대부분
 - 잡음으로 멈춰도 거짓 끼어들기 복구(2초 뒤 재개)가 있지만, 그동안 고객은 침묵을 듣습니다.
 - 되돌리는 기준도 주석에 있습니다. 맞장구에 자꾸 멈추면 250으로 올립니다. 길이 대신 단어 수로 거르는 `minWords`도 있지만, STT 글이 나와야 판단할 수 있어 길이 기준보다 늦습니다.
 
+### 판정을 로그로 보기 (2026-11-04 추가)
+
+`minDuration`을 줄인 커밋(`ce8c7c7`)에 끼어들기 판정 로그도 함께 들어갔습니다. 적응형 방식에서 "왜 안 끊겼나"를 보려면 모델이 무엇이라고 판정했는지가 남아 있어야 합니다.
+
+```ts
+// src/main.ts
+session.on(voice.AgentSessionEventTypes.OverlappingSpeech, (ev) => {
+  const verdict = ev.isInterruption
+    ? '끼어들기로 판단(멈춤)'
+    : ev.agentEnded
+      ? 'AI 말이 먼저 끝나 판단 없음'
+      : '맞장구로 판단(계속 말함)';
+  log().info(
+    {
+      probability: Number(ev.probability.toFixed(2)),
+      detectionDelayMs: Math.round(ev.detectionDelayInS * 1000),
+    },
+    `겹친 말: ${verdict}`,
+  );
+});
+session.on(voice.AgentSessionEventTypes.AgentFalseInterruption, (ev) => {
+  log().info({ resumed: ev.resumed }, '끼어들기 취소: 고객 말이 이어지지 않아 하던 말을 이음');
+});
+```
+
+`OverlappingSpeech` 이벤트(`inference/interruption/types.ts`)는 겹침 하나에 대해 이렇게 옵니다.
+
+| 경우 | 언제 오나 | 값 |
+| --- | --- | --- |
+| **끼어들기** | 겹치는 중에 모델이 끼어들기라고 판정한 순간 | `isInterruption: true`. 이어서 에이전트가 멈춤 |
+| **맞장구** | 고객 소리가 먼저 그쳐 겹침이 끝났을 때 | `isInterruption: false` |
+| **판단 없음** | **에이전트 말이 먼저 끝나** 겹침이 끝났을 때 | `isInterruption: false`, `agentEnded: true`. 고객은 아직 말하는 중일 수 있음 |
+
+나머지 값의 뜻입니다.
+
+- `probability`: 모델이 낸 끼어들기 확률입니다. 기준값을 넘으면 끼어들기로 판정합니다.
+- `detectionDelayInS`: 겹침이 시작된 뒤 판정이 나기까지 걸린 시간입니다. 위 "멈추기까지 걸리는 시간"에서 첫 1초 이후 구간을 정하는 값입니다.
+- `numRequests`: 판정을 위해 모델에 보낸 요청 수입니다(100ms마다 한 번).
+
+`AgentFalseInterruption`은 끼어들기로 멈췄는데 고객 말(STT 글)이 이어지지 않은 경우입니다. `resumed: true`면 하던 말을 다시 이은 것입니다.
+
+"안 끊긴다"는 증상은 로그로 셋 중 하나로 가를 수 있습니다.
+
+1. **이벤트가 아예 없다.** 겹침이 감지되지 않은 것입니다. 첫 1초 안이었다면 VAD 경로(`minDuration`)를 보고, 그 뒤라면 VAD가 고객 소리를 말소리로 잡았는지(5장)를 봅니다.
+2. **"맞장구로 판단"인데 `probability`가 기준 근처다.** 모델 판정의 경계 문제입니다. 한국어 맞장구·끼어들기 표본을 모아 볼 대상입니다.
+3. **"끼어들기로 판단" 뒤에 "끼어들기 취소"가 따라온다.** 멈췄다가 STT 글이 없어 다시 이은 경우입니다. 고객 말이 STT에서 빠졌는지(6장)를 봅니다.
+
+#### "아니다"와 "모른다"를 나누기
+
+처음 로그는 `isInterruption`이 false이면 모두 "맞장구로 판단"으로 적었습니다. 그러면 에이전트가 그냥 말을 마친 경우까지 "모델이 맞장구로 봤다"로 읽힙니다. 증상 2를 찾으려고 로그를 보면, 실제로는 판정이 없었던 겹침이 오판처럼 섞여 나옵니다. SDK도 자기 통계에서는 이 경우를 맞장구 수에서 뺍니다(`numBackchannels: !isInterruption && !agentEnded`). 그래서 같은 기준으로 셋을 나눠 적게 고쳤습니다.
+
+일반화하면 이렇습니다. **참/거짓 값 하나에 "아니다"와 "판정하지 못했다"가 함께 담기면, 읽는 쪽은 둘을 구분할 수 없습니다.** 8-11절의 판정 칸에 `'미확인'`을 따로 둔 것과 같은 이유입니다. 13-5절의 `-1`처럼 "값을 얻기 전에 끝난 관측"이라는 점에서는 중도 절단과도 닮았습니다. 기록을 남길 때는 "모름"이 들어갈 자리를 먼저 정해 두는 편이 안전합니다.
+
 ### 끊긴 뒤에 일어나는 일
 
 - LLM 생성과 TTS를 멈추고, 방으로 나가는 오디오 큐를 비웁니다(`AudioSource.clearQueue()`).

@@ -146,7 +146,7 @@ session.say(OPENING_QUESTION, { allowInterruptions: true });      // ② 질문
 1. **오인식 보정이 일어난 턴은 선제 결과를 버립니다.** 훅(⑤)에서 "메탈 백"을 "메탈팹"으로 고치면 고객 글이 달라져 재사용 검사에 실패하고 LLM을 처음부터 다시 부릅니다(6-8절). 보정을 `sttNode`로 옮기면 해결됩니다.
 2. **시도 횟수가 빨리 소진될 수 있습니다.** PREFLIGHT는 글이 같은지 보지 않고 올 때마다 재시작하며 횟수를 셉니다. finalize로 FINAL도 늘어납니다. 한 턴에 3회를 먼저 다 써 버리면 최종 글로는 선제 생성을 못 합니다. 로그의 "starting preemptive generation" 횟수로 확인할 수 있습니다.
 3. **즉시 반응이 재생 중이면 선제 생성을 하지 않습니다.** 고객이 연달아 말하는 경우에 해당합니다.
-4. **LLM 첫 토큰 메트릭이 달라 보입니다.** `LLMMetrics.ttftMs`는 LLM 스트림을 만든 시점부터 잽니다. 선제 생성이면 턴 확정 **전부터** 잰 값이고, 취소된 시도도 `cancelled: true`로 메트릭이 나옵니다(13장).
+4. **LLM 첫 토큰 메트릭이 달라 보입니다.** `LLMMetrics.ttftMs`는 LLM 스트림을 만든 시점부터 잽니다. 선제 생성이면 턴 확정 **전부터** 잰 값이고, 취소된 시도도 `cancelled: true`로 메트릭이 나옵니다. 통화 결과의 지연 기록은 이 값을 일부러 남깁니다(13-5절).
 
 ---
 
@@ -373,8 +373,9 @@ LiveKit은 파이프라인의 각 단계를 **노드**라는 함수로 열어 �
 | `AgentStateChanged` | — | 화면 상태 표시, 통화 녹음 표시 |
 | `UserInputTranscribed` | — | 실시간 자막, 키워드 감지 |
 | `ConversationItemAdded` | — | 대화 기록 실시간 저장 (Firestore) |
-| `AgentFalseInterruption` | — | 거짓 끼어들기 통계 |
-| `Close` | 무응답·최대 길이 타이머 정리. `end_call` 도구도 내부에서 이 이벤트로 방 삭제·잡 종료 (4-7절) | 통화 결과 저장 |
+| `OverlappingSpeech` (2026-11-04) | 겹친 말의 판정 로그: 끼어들기·맞장구·판단 없음(AI 말이 먼저 끝남), 확률, 판정까지 걸린 시간 (7-5절) | 맞장구·끼어들기 표본 모으기 |
+| `AgentFalseInterruption` | 끼어들기 취소 로그(`resumed`) (7-5절, 2026-11-04) | 거짓 끼어들기 통계 |
+| `Close` | 무응답·최대 길이 타이머 정리, 끝난 이유 기록. RoomIO가 이 이벤트로 방 삭제(`deleteRoomOnClose`), `end_call` 도구가 잡 종료 (4-7절) | 통화 결과 저장 |
 
 통화 결과를 Firestore에 남기거나 통화 후 처리를 부르는 기능은 앞으로 이 이벤트들 위에 만들게 됩니다.
 
