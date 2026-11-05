@@ -83,13 +83,19 @@ export default defineAgent({
 
     // 끼어들기 판단을 남깁니다. AI가 말할 때 고객 말이 겹치면 맞장구인지 끼어들기인지 모델이 가르고,
     // 끼어들었는데 고객 말이 이어지지 않으면(잡음·숨소리) 하던 말을 다시 잇습니다. 안 끊길 때 원인을 봅니다.
+    // AI 말이 먼저 끝난 겹침은 판정 없이(isInterruption false) 오므로 맞장구와 나눠 적습니다(SDK 통계도 뺌).
     session.on(voice.AgentSessionEventTypes.OverlappingSpeech, (ev) => {
+      const verdict = ev.isInterruption
+        ? '끼어들기로 판단(멈춤)'
+        : ev.agentEnded
+          ? 'AI 말이 먼저 끝나 판단 없음'
+          : '맞장구로 판단(계속 말함)';
       log().info(
         {
           probability: Number(ev.probability.toFixed(2)),
           detectionDelayMs: Math.round(ev.detectionDelayInS * 1000),
         },
-        ev.isInterruption ? '겹친 말: 끼어들기로 판단(멈춤)' : '겹친 말: 맞장구로 판단(계속 말함)',
+        `겹친 말: ${verdict}`,
       );
     });
     session.on(voice.AgentSessionEventTypes.AgentFalseInterruption, (ev) => {
@@ -133,8 +139,7 @@ export default defineAgent({
         deleteRoomOnClose: true,
       },
     });
-
-    await ctx.connect();
+    // 방 연결은 session.start()가 합니다(스타터의 뒤이은 ctx.connect()는 이미 연결돼 아무 일도 안 해 뺐습니다).
 
     // 정해진 멘트를 끝까지 말한 뒤 통화를 끝냅니다. 방은 세션이 닫힐 때 지워집니다(deleteRoomOnClose).
     // AI가 스스로 끊을 때는 end_call 도구(agent.ts)가 같은 일을 합니다.
