@@ -26,9 +26,11 @@ export function createAgent({
     instructions: buildInstructions(call, knowledge),
     llm,
     tools: [
-      // 작별 인사를 말한 답이 끝까지 재생된 뒤 세션을 닫고 방을 지웁니다(전화면 끊김).
+      // 작별 인사를 말한 답이 끝까지 재생된 뒤 세션을 닫습니다. 방은 세션이 닫힐 때 지워지므로
+      // (main.ts의 deleteRoomOnClose) 도구가 한 번 더 지우지 않게 deleteRoom을 끕니다.
       // 인사는 도구를 부르는 답에서 하므로, 도구 뒤에 한 번 더 말하지 않게 endInstructions를 비웁니다.
       beta.createEndCallTool({
+        deleteRoom: false,
         endInstructions: null,
         extraDescription:
           '마지막 인사를 말한 같은 답에서 부릅니다. 통화 곤란, 수신 거부, 신청한 적 없음, 마무리 인사 뒤에 씁니다.',

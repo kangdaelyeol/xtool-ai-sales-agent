@@ -123,13 +123,16 @@ export default defineAgent({
         // ai-coustics QUAIL audio enhancement for noise cancellation
         // Works for both WebRTC and telephony (SIP) participants
         noiseCancellation: audioEnhancement({ model: EnhancerModel.QuailVfS }),
+        // 세션이 닫히면 어떤 경로든 방을 지웁니다(전화면 끊김). 고객이 먼저 나갔을 때 에이전트만 남은 방이
+        // 유예 시간 뒤에 닫히기를 기다리지 않고 잡이 바로 끝나, 통화 결과도 바로 보냅니다.
+        deleteRoomOnClose: true,
       },
     });
 
     await ctx.connect();
 
-    // 정해진 멘트를 끝까지 말한 뒤 방을 지워 통화를 끝냅니다(전화면 끊김). AI가 스스로 끊을 때는
-    // end_call 도구(agent.ts)가 같은 일을 합니다.
+    // 정해진 멘트를 끝까지 말한 뒤 통화를 끝냅니다. 방은 세션이 닫힐 때 지워집니다(deleteRoomOnClose).
+    // AI가 스스로 끊을 때는 end_call 도구(agent.ts)가 같은 일을 합니다.
     let ending = false;
     const endCall = async (goodbye: string, reason: string) => {
       if (ending) return;
@@ -137,9 +140,6 @@ export default defineAgent({
       endReason = reason;
       log().info({ callId: call.callId, reason }, '통화 종료');
       await session.say(goodbye, { allowInterruptions: false }).waitForPlayout();
-      ctx.addShutdownCallback(async () => {
-        await ctx.deleteRoom().catch((error) => log().warn({ error }, '방을 지우지 못했습니다'));
-      });
       ctx.shutdown(reason);
     };
     guardCall(session, endCall);
