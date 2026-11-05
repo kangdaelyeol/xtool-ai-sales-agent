@@ -218,3 +218,19 @@
 
 - **판단:** 바꾸기 전에 같은 프롬프트로 Anthropic API(global)와 Bedrock `jp.`를 A/B로 잽니다. Bedrock을 쓰려면 AWS 계정, Bedrock 모델 사용 신청, Anthropic 플러그인이 Bedrock 클라이언트를 받는지 확인이 필요합니다(플러그인은 오래된 SDK 0.33).
 - 출처: AWS Bedrock Haiku 5.5 모델 카드, Vertex AI Haiku 5.5·데이터 위치 문서, platform.claude.com 데이터 위치·플랫폼 문서 (2026-11-03 조사).
+
+### Bedrock 도쿄 A/B (2026-11-05, 맥에서 측정)
+
+- 우리 계정은 Haiku 5.5가 아직 막혀 있어("not available for this account") 양쪽 모두 **Haiku 4.5**로 쟀습니다. 상담 프롬프트 그대로, 12회씩 번갈아 불렀고 첫 토큰까지의 시간입니다.
+
+| 경로 | p50 | p90 | 최소 |
+|---|---|---|---|
+| Anthropic API | 0.77초 | 0.87초 | 0.74초 |
+| Bedrock `jp.` (도쿄) | **0.66초** | **0.79초** | **0.53초** |
+
+- 프롬프트 캐시는 효과가 없었습니다(약 3,300토큰, 캐시 있음·없음 차이가 측정 오차 안). "hi" 한 단어 요청도 0.7초라, 첫 토큰의 대부분은 네트워크와 서버 대기입니다.
+- **판단:** 도쿄로 옮기면 턴마다 약 0.1초 줄어듭니다. Haiku 5.5가 열리면 `LLM_PROVIDER=bedrock`으로 바꾸고 `pnpm compare:llm`으로 다시 확인합니다.
+- 계정 설정에서 겪은 것:
+  - 무료 플랜은 리전 하나만 열려 있어 업그레이드가 필요했습니다.
+  - 조직 정책(SCP)이 Bedrock API 키(bearer)와 멤버 계정의 사용 목적 제출을 막았습니다. 그래서 IAM 액세스 키를 쓰고, 사용 목적은 관리 계정에서 냈습니다.
+  - Mantle(Anthropic API 호환 주소)의 도쿄에는 Haiku 5.5가 없어서 bedrock-runtime 경로를 씁니다.
