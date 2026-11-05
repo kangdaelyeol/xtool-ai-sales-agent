@@ -42,9 +42,16 @@ const RESPONSE = sse([
 let server: Server;
 let baseURL: string;
 let lastBody: Record<string, unknown>;
+let lastHead: string | undefined;
 
 beforeAll(async () => {
   server = createServer((req, res) => {
+    if (req.method === 'HEAD') {
+      lastHead = req.url;
+      res.writeHead(404, { connection: 'close' });
+      res.end();
+      return;
+    }
     let raw = '';
     req.on('data', (chunk) => (raw += chunk));
     req.on('end', () => {
@@ -63,6 +70,7 @@ afterAll(() => {
 
 beforeEach(() => {
   lastBody = {};
+  lastHead = undefined;
 });
 
 function chatCtx() {
@@ -122,5 +130,21 @@ describe('VoiceAnthropicLLM', () => {
 
     const messages = lastBody.messages as { role: string }[];
     expect(messages.at(-1)?.role).toBe('user');
+  });
+
+  it('prewarmUrl이 있으면 미리 연결을 그 주소의 HEAD로 한다 (Bedrock 클라이언트에는 models.list가 없음)', async () => {
+    const model = new VoiceAnthropicLLM({
+      model: 'jp.anthropic.claude-haiku-5-5',
+      apiKey: 'test',
+      baseURL,
+      effort: 'low',
+      thinking: 'off',
+      prewarmUrl: `${baseURL}/warm`,
+    });
+    const prewarm = (model as unknown as { _prewarmImpl(s: AbortSignal): Promise<void> })
+      ._prewarmImpl;
+    await prewarm.call(model, new AbortController().signal);
+
+    expect(lastHead).toBe('/warm');
   });
 });

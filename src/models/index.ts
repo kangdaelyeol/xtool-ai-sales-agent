@@ -46,6 +46,7 @@ export function createLLM(config: LlmConfig): llm.LLM {
         maxTokens: 2048,
         // 플러그인은 @anthropic-ai/sdk 0.33 타입을 기대하지만, 쓰는 것은 messages.create 스트림뿐입니다.
         client: client as unknown as NonNullable<anthropic.LLMOptions['client']>,
+        prewarmUrl: client.baseURL,
       });
     }
     case 'livekit':
