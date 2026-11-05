@@ -32,8 +32,13 @@ export default defineAgent({
     const stt = createSTT(config.stt);
     const tts = createTTS(config.tts);
     // 즉시 반응 음성을 첫 멘트와 함께 미리 만들어 둡니다(약 1초). 그 전에 필요하면 평소처럼 합성합니다.
+    // 세션과 다른 TTS 객체로 만들어, 미리 합성한 몫이 통화 지연 기록(call-result.ts)에 섞이지 않게 합니다.
     const ackAudio = new AckAudioCache();
-    void ackAudio.preload(tts);
+    const ackTts = createTTS(config.tts);
+    void ackAudio
+      .preload(ackTts)
+      .then(() => ackTts.close())
+      .catch((error) => log().warn({ error }, '즉시 반응용 TTS를 닫지 못했습니다'));
     const session = new voice.AgentSession({
       stt,
       tts,
