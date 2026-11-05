@@ -1,4 +1,4 @@
-// 부품 선택. STT·LLM·TTS를 환경변수로 바꿔 끼웁니다 (docs/poc-setup.md 3장).
+// 부품 선택. STT·LLM·TTS를 환경변수로 바꿔 끼웁니다 (docs/3-poc-setup.md 3장).
 // `livekit`은 LiveKit Inference(LiveKit Cloud 크레딧, 별도 키 없음)를 뜻합니다.
 
 export type SttProvider = 'soniox' | 'livekit';
@@ -36,7 +36,7 @@ export interface Config {
 
 const DEFAULT_MODELS = {
   stt: { soniox: 'stt-rt-v5', livekit: 'deepgram/nova-3' },
-  // Bedrock은 일본 안(도쿄·오사카)에서만 처리하는 jp. 교차 리전 프로필입니다 (docs/poc-results.md 7장).
+  // Bedrock은 일본 안(도쿄·오사카)에서만 처리하는 jp. 교차 리전 프로필입니다 (docs/5-poc-results.md 7장).
   llm: {
     anthropic: 'claude-haiku-5-5',
     bedrock: 'jp.anthropic.claude-haiku-5-5',

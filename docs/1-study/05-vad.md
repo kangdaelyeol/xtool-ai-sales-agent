@@ -66,7 +66,7 @@ WebRTC에 들어 있는 고전 VAD는 소리를 여러 주파수 대역으로 �
 // VAD는 넘기지 않으면 번들된 Silero(로컬 실행)가 자동으로 붙습니다.
 ```
 
-`AgentSession`은 VAD가 없으면 `new InferenceVAD({ model: 'silero' })`를 만듭니다(`voice/agent_session.ts`). 이 VAD는 `@livekit/local-inference`라는 **네이티브 모듈**(C++/Rust로 만든 Node 확장) 안에 모델이 내장되어 있어서, 따로 모델 파일을 받을 필요가 없습니다. 예전에는 Silero 플러그인(`@livekit/agents-plugin-silero`)과 onnxruntime을 따로 설치했는데, 그것을 지워도 되는 이유가 이것입니다([setup-checklist.md 1-2](../setup-checklist.md#1-2-설치-문제-해결)).
+`AgentSession`은 VAD가 없으면 `new InferenceVAD({ model: 'silero' })`를 만듭니다(`voice/agent_session.ts`). 이 VAD는 `@livekit/local-inference`라는 **네이티브 모듈**(C++/Rust로 만든 Node 확장) 안에 모델이 내장되어 있어서, 따로 모델 파일을 받을 필요가 없습니다. 예전에는 Silero 플러그인(`@livekit/agents-plugin-silero`)과 onnxruntime을 따로 설치했는데, 그것을 지워도 되는 이유가 이것입니다([4-setup-checklist.md 1-2](../4-setup-checklist.md#1-2-설치-문제-해결)).
 
 - 각 잡 프로세스 안에서 돕니다(4장). 무겁지 않아 공유 추론 프로세스로 보내지 않습니다.
 - 방 오디오(24kHz)를 **16kHz로 리샘플**해서 32ms 창으로 자릅니다(`inference/vad.ts`).
@@ -150,7 +150,7 @@ LiveKit은 이 문제를 VAD 혼자 풀게 하지 않습니다. **VAD는 짧게(
 | `listening` | VAD 말 끝 |
 | `away` | 사용자와 에이전트가 모두 조용한 상태로 15초가 지나면 (`userAwayTimeout` 기본값) |
 
-`away`는 "여보세요?" 재촉이나 무응답 종료([tech-stack.md 7장](../tech-stack.md#7-우리가-직접-만들-기능-목록)의 "무응답 재촉 10초, 종료 30초")를 만들 때 쓰는 신호입니다.
+`away`는 "여보세요?" 재촉이나 무응답 종료([2-tech-stack.md 7장](../2-tech-stack.md#7-우리가-직접-만들-기능-목록)의 "무응답 재촉 10초, 종료 30초")를 만들 때 쓰는 신호입니다.
 
 ### away를 쓰는 무응답 안전장치 (2026-11-03 추가)
 
@@ -211,7 +211,7 @@ VAD는 **소리가 말소리인지**만 압니다. 다음은 모릅니다.
 | --- | --- |
 | VAD 메트릭 집계 | Node SDK의 기본 VAD 메트릭은 "추론 횟수"가 아니라 `START_OF_SPEECH` 횟수를 세어, 말 시작이 약 32번 있을 때마다 한 번 나옵니다. 의도와 다른 것으로 보여, VAD 메트릭은 참고만 합니다 |
 | 사건 시각의 단위 | VAD 사건의 `timestamp`는 주석상 epoch ms지만, 실제로는 스트림 시작부터 누적한 ms가 들어갑니다. 다른 시각과 비교할 때 주의합니다 |
-| 맥에서의 성능 경고 | PoC 로그에 `VAD inference is slower than realtime`이 두 번 나왔습니다([poc-results.md](../poc-results.md)). 디버거 TTS와 같이 돌던 맥에서 생긴 것으로 보이며, VAD가 실시간을 못 따라가면 모든 타이밍이 밀리므로 서버에서 다시 확인해야 합니다 |
+| 맥에서의 성능 경고 | PoC 로그에 `VAD inference is slower than realtime`이 두 번 나왔습니다([5-poc-results.md](../5-poc-results.md)). 디버거 TTS와 같이 돌던 맥에서 생긴 것으로 보이며, VAD가 실시간을 못 따라가면 모든 타이밍이 밀리므로 서버에서 다시 확인해야 합니다 |
 | 끼어들 수 없는 말 중의 고객 소리 | 고지처럼 끼어들기를 막은 발화 중에는 **STT에 무음이 들어가지만 VAD는 진짜 소리를 받습니다.** 그래서 사용자 상태는 `speaking`이 되는데 글이 없어 턴이 생기지 않습니다(7장, 11장) |
 
 ---

@@ -16,22 +16,23 @@
 
 ## 문서
 
-| 문서                                                             | 내용                                                                             |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| [docs/setup-checklist.md](docs/setup-checklist.md)               | **지금까지 한 일과 직접 해야 할 세팅 (여기서 시작)**                             |
-| [docs/web-test.md](docs/web-test.md)                             | 관리 화면(/log)에서 브라우저로 통화하는 웹 테스트: 세션 API 명세, 배포 순서      |
-| [docs/poc-results.md](docs/poc-results.md)                       | PoC 측정 기록 (지연, STT 인식, 음성 후보)                                        |
-| [docs/study/](docs/study/README.md)                              | 학습서: 이 레포로 배우는 음성 AI 에이전트의 개념·이론·기법 (16장)                |
-| [docs/tech-stack.md](docs/tech-stack.md)                         | 업체 기술 분석, 부품 선택, 아키텍처, 개발 단계                                   |
-| [docs/poc-setup.md](docs/poc-setup.md)                           | 브라우저 PoC용 구독 서비스와 설치 순서                                           |
-| [docs/telephony-setup.md](docs/telephony-setup.md)               | 국내 SIP 회선 요구 사항과 Asterisk 세팅 (프로덕션 단계)                          |
-| [업무 문서 README](../originalshq/docs/ai-sales-agent/README.md) | 적용 업무, 판정 기준, 대화 설계, 법무 (originalshq, git에 올리지 않는 로컬 문서) |
+| 문서                                                             | 내용                                                                                       |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| [docs/1-study/](docs/1-study/README.md)                          | **학습서 (공부는 여기서 시작)**: 이 레포로 배우는 음성 AI 에이전트의 개념·이론·기법 (17장) |
+| [docs/2-tech-stack.md](docs/2-tech-stack.md)                     | 업체 기술 분석, 부품 선택, 아키텍처, 개발 단계                                             |
+| [docs/3-poc-setup.md](docs/3-poc-setup.md)                       | 브라우저 PoC용 구독 서비스와 설치 순서                                                     |
+| [docs/4-setup-checklist.md](docs/4-setup-checklist.md)           | **지금까지 한 일과 직접 해야 할 세팅 (세팅은 여기서 시작)**                                |
+| [docs/5-poc-results.md](docs/5-poc-results.md)                   | PoC 측정 기록 (지연, STT 인식, 음성 후보)                                                  |
+| [docs/6-web-test.md](docs/6-web-test.md)                         | 관리 화면(/log)에서 브라우저로 통화하는 웹 테스트: 세션 API 명세, 배포 순서                |
+| [docs/7-telephony-setup.md](docs/7-telephony-setup.md)           | 국내 SIP 회선 요구 사항과 Asterisk 세팅 (프로덕션 단계)                                    |
+| [업무 문서 README](../originalshq/docs/ai-sales-agent/README.md) | 적용 업무, 판정 기준, 대화 설계, 법무 (originalshq, git에 올리지 않는 로컬 문서)           |
 
-> 업무 문서 링크는 두 레포를 같은 폴더(`~/projects/`)에 나란히 둔다는 전제의 상대경로입니다.
+> - `docs/`의 번호가 읽는 순서입니다. 학습서 안의 장(01~17)도 번호 순서대로 읽으면 됩니다.
+> - 업무 문서 링크는 두 레포를 같은 폴더(`~/projects/`)에 나란히 둔다는 전제의 상대경로입니다.
 
 ## 시작하기
 
-준비물: Node.js 24 이상, pnpm 12.16.1(`package.json`의 `packageManager`로 고정, `corepack enable`이면 자동), LiveKit CLI 2.18.8 이상 ([poc-setup.md 2장](docs/poc-setup.md#2-설치-순서))
+준비물: Node.js 24 이상, pnpm 12.16.1(`package.json`의 `packageManager`로 고정, `corepack enable`이면 자동), LiveKit CLI 2.18.8 이상 ([3-poc-setup.md 2장](docs/3-poc-setup.md#2-설치-순서))
 
 ```bash
 pnpm install

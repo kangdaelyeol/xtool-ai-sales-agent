@@ -5,7 +5,7 @@
 - 주식회사 오리지널스(xTool 레이저 장비 판매)의 AI 음성 영업 상담원 워커입니다. 답변과 문서는 한국어로 씁니다.
 - 첫 업무: 웹사이트 상담 신청 고객에게 바로 전화해 1차 판정(용도·예산·할부·도입 시기) → 방문체험 예약 또는 상담사 인계.
 - 구조: 단계 연결형(STT → LLM → TTS). PoC 부품은 Soniox `stt-rt-v5`, Claude Haiku 5.5(`claude-haiku-5-5`), ElevenLabs `eleven_v4_turbo`, Silero VAD + `inference.TurnDetector`.
-- 기술 문서는 `docs/`(tech-stack, poc-setup, telephony-setup), 업무 문서(판정 기준, 대화 설계, 법무)는 originalshq 레포 `docs/ai-sales-agent/README.md`에 있습니다(로컬 전용, git 무시됨).
+- 기술 문서는 `docs/`(파일 이름 앞 번호가 읽는 순서: `1-study/` 학습서, `2-tech-stack.md` … `7-telephony-setup.md`. 새 문서도 번호를 붙임), 업무 문서(판정 기준, 대화 설계, 법무)는 originalshq 레포 `docs/ai-sales-agent/README.md`에 있습니다(로컬 전용, git 무시됨).
 - 업무 연동(발신 요청, 통화 결과 처리, Monday, Solapi)은 originalshq의 functions-xtool이 맡습니다. 이 레포에서는 Firestore와 functions-xtool API(공유 비밀키)로만 연결합니다.
 
 ## LiveKit Agents

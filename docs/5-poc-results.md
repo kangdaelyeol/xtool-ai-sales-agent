@@ -1,6 +1,6 @@
 # PoC 측정 기록
 
-브라우저 PoC에서 잰 값을 날짜순으로 쌓습니다. 기준은 [poc-setup.md 4장](poc-setup.md#4-poc에서-확인할-것)이고, 측정 방법은 [setup-checklist.md 5장](setup-checklist.md#5-검증-순서)에 있습니다.
+브라우저 PoC에서 잰 값을 날짜순으로 쌓습니다. 기준은 [3-poc-setup.md 4장](3-poc-setup.md#4-poc에서-확인할-것)이고, 측정 방법은 [4-setup-checklist.md 5장](4-setup-checklist.md#5-검증-순서)에 있습니다.
 
 > 측정 환경: 맥(M1 Pro, 서울) → 해외 API. 서버를 GCP 서울에 두면 값이 달라질 수 있습니다.
 
@@ -190,7 +190,7 @@
 | 즉시 반응 예외 | 수신 거부·불만·사람 요청에는 "네네"를 하지 않음 (`shouldAck`) | 단위 테스트 |
 | 무응답·최대 길이 | 10초 조용하면 "여보세요?", 그 뒤 10초 더 없으면 인사 후 종료. 통화 8분 상한 (`src/call-guard.ts`) | 단위 테스트 |
 | 고지 중 고객 말 | 끼어들기를 막은 AI·녹음 고지 중에 한 말을 버리지 않고 고지 뒤 처리 (`discardAudioIfUninterruptible: false`) | — |
-| 통화 결과 | 통화가 끝나면 대화록·구간별 지연을 functions-xtool로 보내 Firestore 저장 → 트리거가 판정 추출 (`docs/web-test.md` 4-1) | 가짜 서버로 전송 확인, 실제 API로 판정 1건 |
+| 통화 결과 | 통화가 끝나면 대화록·구간별 지연을 functions-xtool로 보내 Firestore 저장 → 트리거가 판정 추출 (`docs/6-web-test.md` 4-1) | 가짜 서버로 전송 확인, 실제 API로 판정 1건 |
 | 즉시 반응 미리 합성 | 통화 시작 때 3개를 합성해 두고 재생 (`src/ack-audio.ts`) | 턴마다 TTS 1회(본 답)만 돔 |
 | 지식 자료 | `knowledge/xtool.md`를 상담팀이 채우면 프롬프트에 들어감. 지금은 비어 있음 | 단위 테스트 |
 

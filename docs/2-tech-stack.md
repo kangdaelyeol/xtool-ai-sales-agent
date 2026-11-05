@@ -166,7 +166,7 @@
 
 → **실제 우리 상담 녹음 50~100건으로 리턴제로와 Soniox를 비교**해서 정합니다. 기준은 제품명 인식률, 전화번호와 숫자 인식, 지연입니다.
 
-> **주의 (2026-11-03 확인):** 리턴제로의 LiveKit 플러그인은 **Python용만** 있습니다. TypeScript로 쓰려면 연결 코드를 직접 옮겨 짜야 합니다. Soniox는 TS 플러그인이 있어 PoC에서는 Soniox로 먼저 시작합니다. Typecast는 두 언어 모두 플러그인이 없습니다. 구독과 설치 순서는 [poc-setup.md](poc-setup.md)에 있습니다.
+> **주의 (2026-11-03 확인):** 리턴제로의 LiveKit 플러그인은 **Python용만** 있습니다. TypeScript로 쓰려면 연결 코드를 직접 옮겨 짜야 합니다. Soniox는 TS 플러그인이 있어 PoC에서는 Soniox로 먼저 시작합니다. Typecast는 두 언어 모두 플러그인이 없습니다. 구독과 설치 순서는 [3-poc-setup.md](3-poc-setup.md)에 있습니다.
 
 ### 4-3. LLM (대화 두뇌)
 
@@ -274,7 +274,7 @@ LiveKit SIP는 **등록(REGISTER) 방식을 지원하지 않습니다.** 국내 
 
 ### 5-4. 통신사에 물어볼 것
 
-> 요구 사항 상세, 문의 메일 초안, 세팅 순서는 [telephony-setup.md](telephony-setup.md)에 있습니다.
+> 요구 사항 상세, 문의 메일 초안, 세팅 순서는 [7-telephony-setup.md](7-telephony-setup.md)에 있습니다.
 
 1. 최소 채널 수 (1~2채널 계약 가능한지)
 2. 인증 방식 (고정 IP / ID·PW 등록)

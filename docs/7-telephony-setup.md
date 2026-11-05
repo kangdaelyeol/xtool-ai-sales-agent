@@ -7,7 +7,7 @@ AI 상담 에이전트가 고객 휴대폰으로 전화를 걸려면 **국내 �
 3. 답변을 받고 판단하는 방법
 4. 회선을 받은 뒤 세팅하는 순서
 
-> - 왜 국내 회선이 필요한지, 전체 구조는 [tech-stack.md 5장](tech-stack.md#5-전화-회선-가장-큰-장애물)에 있습니다.
+> - 왜 국내 회선이 필요한지, 전체 구조는 [2-tech-stack.md 5장](2-tech-stack.md#5-전화-회선-가장-큰-장애물)에 있습니다.
 > - 설정 예시는 구조를 보여 주기 위한 것입니다. 실제 값(IP, 도메인, 계정, 번호 형식)은 통신사가 보내 주는 **연동 규격서**를 따릅니다.
 
 ---
@@ -287,7 +287,7 @@ lk sip outbound create outbound-trunk.json      # 트렁크 id를 받습니다
 **발신 시험:**
 - 에이전트를 배정한 방(room)에 SIP 참가자를 만들면 전화가 나갑니다.
   - 입력값: `sip_trunk_id`, `sip_call_to` = 고객 번호, `room_name`
-- 실제 서비스에서는 functions-xtool이 이 API를 부릅니다([tech-stack.md 6장](tech-stack.md#6-전체-아키텍처)).
+- 실제 서비스에서는 functions-xtool이 이 API를 부릅니다([2-tech-stack.md 6장](2-tech-stack.md#6-전체-아키텍처)).
 
 ### 6-5. 수신 (나중에)
 

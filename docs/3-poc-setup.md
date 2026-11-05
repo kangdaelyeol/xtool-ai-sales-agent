@@ -2,7 +2,7 @@
 
 전화 회선 없이 **브라우저로 AI 상담원과 한국어로 통화해 보는 PoC**를 위한 준비 목록입니다. 목표는 STT·LLM·TTS를 바꿔 끼우며 한국어 품질과 응답 지연을 비교하는 것입니다.
 
-> - 전체 설계는 [tech-stack.md](tech-stack.md)에 있습니다.
+> - 전체 설계는 [2-tech-stack.md](2-tech-stack.md)에 있습니다.
 > - 2026-11-03에 npm, 공식 문서, 가격 페이지로 확인했습니다. 가격과 무료 혜택은 바뀔 수 있습니다.
 
 ---
@@ -32,7 +32,7 @@
 
 - **OpenAI 계정:** GPT-6 Luna는 LiveKit Inference로 키 없이 비교할 수 있습니다. 본격적으로 쓸 때 가입합니다(최소 선결제 $5).
   - 주의: GPT-6 Luna로 도구를 쓰려면 Chat Completions에서 `reasoning_effort: none`이어야 합니다.
-- **전화 회선:** 프로덕션 단계에서 준비합니다([telephony-setup.md](telephony-setup.md)).
+- **전화 회선:** 프로덕션 단계에서 준비합니다([7-telephony-setup.md](7-telephony-setup.md)).
 
 ### PoC 예상 비용
 
@@ -68,7 +68,7 @@ lk cloud auth                                        # 브라우저로 LiveKit C
 pnpm install
 ```
 
-- functions와 배포 단위가 달라 별도 레포로 둡니다([tech-stack.md 6장](tech-stack.md#6-전체-아키텍처)).
+- functions와 배포 단위가 달라 별도 레포로 둡니다([2-tech-stack.md 6장](2-tech-stack.md#6-전체-아키텍처)).
 - 스타터에는 기본 모델 설정(LiveKit Inference)이 들어 있습니다. 먼저 그대로 돌려 동작을 확인한 뒤 부품을 바꿉니다.
 
 ### 2-3. 플러그인 설치

@@ -38,7 +38,7 @@ TTS(Text-to-Speech, 음성 합성)는 LLM이 만든 글을 목소리로 바꿉�
 | 010-1234-5678 | 공일공, 일이삼사, 오육칠팔 | 공십 다시 천이백삼십사 |
 | F2 | 에프투 (우리 회사 기준) | 에프이, 에프 둘 |
 
-규칙은 "시"에는 고유어, "분"에는 한자어처럼 **뒤에 오는 단위 명사**에 따라 달라집니다. TTS 서비스마다 이 규칙을 얼마나 잘 지키는지가 다르고, 어떤 모델(ElevenLabs Flash v2.5)은 숫자 변환을 아예 하지 않습니다([poc-setup.md 3장](../poc-setup.md#3-부품을-바꿔-끼울-때-알아둘-것)). 그래서 이 프로젝트는 **LLM이 처음부터 읽는 대로 한글로 쓰게** 지시합니다(9장 "숫자는 읽는 대로 한글로"). 정규화 문제를 TTS에 맡기지 않고 앞 단계에서 없애는 전략입니다.
+규칙은 "시"에는 고유어, "분"에는 한자어처럼 **뒤에 오는 단위 명사**에 따라 달라집니다. TTS 서비스마다 이 규칙을 얼마나 잘 지키는지가 다르고, 어떤 모델(ElevenLabs Flash v2.5)은 숫자 변환을 아예 하지 않습니다([3-poc-setup.md 3장](../3-poc-setup.md#3-부품을-바꿔-끼울-때-알아둘-것)). 그래서 이 프로젝트는 **LLM이 처음부터 읽는 대로 한글로 쓰게** 지시합니다(9장 "숫자는 읽는 대로 한글로"). 정규화 문제를 TTS에 맡기지 않고 앞 단계에서 없애는 전략입니다.
 
 ### ② 발음 변환 — 한국어 음운 규칙
 
@@ -85,7 +85,7 @@ TTS는 문장을 **어디까지 보고** 말을 시작할지 정해야 합니다
 
 ### TTFB
 
-TTS의 핵심 지표는 **TTFB(Time To First Byte, 첫 오디오까지 시간)**입니다. PoC에서 ElevenLabs v4 Turbo의 TTS 첫 음성은 약 0.17초였습니다([poc-results.md](../poc-results.md)). 이 프로젝트의 지연 예산에서 TTS는 이미 목표(0.1~0.2초) 안에 있습니다.
+TTS의 핵심 지표는 **TTFB(Time To First Byte, 첫 오디오까지 시간)**입니다. PoC에서 ElevenLabs v4 Turbo의 TTS 첫 음성은 약 0.17초였습니다([5-poc-results.md](../5-poc-results.md)). 이 프로젝트의 지연 예산에서 TTS는 이미 목표(0.1~0.2초) 안에 있습니다.
 
 ---
 
@@ -107,7 +107,7 @@ wss://api.elevenlabs.io/v1/text-to-dialogue/multi-stream-input
 헤더: xi-api-key: <ELEVEN_API_KEY>
 ```
 
-[setup-checklist.md 9장](../setup-checklist.md#9-알아-둘-점)이 "v4 Turbo는 Text-to-Dialogue API를 거쳐서 언어 지정이 무시될 수 있다"고 적은 것이 이 경로 이야기입니다. URL에 `language_code=ko`가 붙긴 하지만 서버가 어떻게 쓰는지는 알 수 없으므로, **한국어 음성을 고르는 것**이 확실한 방법입니다.
+[4-setup-checklist.md 9장](../4-setup-checklist.md#9-알아-둘-점)이 "v4 Turbo는 Text-to-Dialogue API를 거쳐서 언어 지정이 무시될 수 있다"고 적은 것이 이 경로 이야기입니다. URL에 `language_code=ko`가 붙긴 하지만 서버가 어떻게 쓰는지는 알 수 없으므로, **한국어 음성을 고르는 것**이 확실한 방법입니다.
 
 ### 하나의 연결, 여러 "컨텍스트"
 
@@ -211,7 +211,7 @@ export const SPOKEN_TERMS: ReadonlyArray<readonly [term: string, spoken: string]
 ];
 ```
 
-"O1 = 오원"처럼 상담팀이 실제로 부르는 이름인지 확인이 필요한 항목이 있습니다([setup-checklist.md 7-4](../setup-checklist.md#7-상담팀업무-쪽에서-정해-줄-것)). 발음은 기술이 아니라 **업무가 정할 일**이고, 코드는 그 결정을 담는 표일 뿐입니다.
+"O1 = 오원"처럼 상담팀이 실제로 부르는 이름인지 확인이 필요한 항목이 있습니다([4-setup-checklist.md 7-4](../4-setup-checklist.md#7-상담팀업무-쪽에서-정해-줄-것)). 발음은 기술이 아니라 **업무가 정할 일**이고, 코드는 그 결정을 담는 표일 뿐입니다.
 
 ### 정규식 만들기
 
@@ -294,7 +294,7 @@ ElevenLabs는 "어떤 글자를 언제 말했는지" 정보(alignment)를 돌려
 ## 10-7. 목소리 고르기
 
 - `TTS_VOICE`에 ElevenLabs Voice ID를 넣습니다. **비우면 공급사 기본 음성(영어)**이 나와 한국어가 어색해집니다([.env.example](../../.env.example)).
-- PoC 후보는 여 3명, 남 3명입니다([poc-results.md](../poc-results.md)). 상담팀이 **블라인드 청취**로 고를 예정입니다. 누가 만든 음성인지 모르는 상태로 같은 문장을 듣고 고르면 선입견을 줄일 수 있습니다.
+- PoC 후보는 여 3명, 남 3명입니다([5-poc-results.md](../5-poc-results.md)). 상담팀이 **블라인드 청취**로 고를 예정입니다. 누가 만든 음성인지 모르는 상태로 같은 문장을 듣고 고르면 선입견을 줄일 수 있습니다.
 - 평가 기준은 자연스러움, 신뢰감, 제품명·숫자 발음, 전화 음질(8kHz)에서도 또렷한지입니다. 24kHz로 좋게 들리던 목소리가 8kHz에서 답답하게 들릴 수 있습니다(2장).
 - 음성 품질의 학술 지표로는 사람들이 1~5점으로 매긴 평균인 **MOS(Mean Opinion Score)**가 있습니다. 우리 규모에서는 상담팀 몇 명의 블라인드 선호 투표가 현실적입니다.
 
