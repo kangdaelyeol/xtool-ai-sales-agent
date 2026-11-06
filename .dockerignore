@@ -26,6 +26,9 @@ coverage/
 # Environment variables
 .env
 .env.*
+# 하위 폴더의 사본까지 (편집기 로컬 기록이 .env.local을 저장할 때마다 사본을 남김)
+**/.env*
+.history/
 
 # VCS, editor, OS
 .git
