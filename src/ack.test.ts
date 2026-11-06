@@ -66,4 +66,46 @@ describe('withoutLeadingAck', () => {
   it('짧은 답도 빠짐없이 내보낸다', async () => {
     expect(await collect(['네', '.'])).toBe('네.');
   });
+
+  it('어디서 나뉘어 와도 결과가 같다 (맞장구 둘이 겹친 답 포함)', async () => {
+    const cases: [string, string][] = [
+      ['알겠습니다. 감사합니다. 예산은요?', '예산은요?'],
+      ['네, 감사합니다. 도입은 언제쯤이세요?', '도입은 언제쯤이세요?'],
+      ['아, 네. 예산은요?', '예산은요?'],
+      ['네일 아트용인가요?', '네일 아트용인가요?'],
+      ['아니요, 괜찮아요.', '아니요, 괜찮아요.'],
+      ['음성 안내를 들으셨나요?', '음성 안내를 들으셨나요?'],
+    ];
+    for (const [input, expected] of cases) {
+      const chars = [...input];
+      // 판단은 첫머리에서 끝나므로 앞 15글자 안의 분할점을 모두 시험합니다 (최대 2^14가지).
+      const cuts = Math.min(chars.length - 1, 14);
+      for (let mask = 0; mask < 2 ** cuts; mask++) {
+        const chunks: string[] = [];
+        let piece = chars[0] ?? '';
+        for (let i = 1; i < chars.length; i++) {
+          if (mask & (1 << (i - 1))) {
+            chunks.push(piece);
+            piece = '';
+          }
+          piece += chars[i];
+        }
+        chunks.push(piece);
+        expect(await collect(chunks), chunks.join('|')).toBe(expected);
+      }
+    }
+  });
+
+  it('맞장구가 아니면 첫 두 글자 안에 내보낸다', async () => {
+    async function* source() {
+      yield '예';
+      yield '산';
+      throw new Error('여기까지 왔으면 이미 내보냈어야 함');
+    }
+    const out: string[] = [];
+    await expect(async () => {
+      for await (const part of withoutLeadingAck(source())) out.push(part as string);
+    }).rejects.toThrow();
+    expect(out).toEqual(['예산']);
+  });
 });

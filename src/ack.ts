@@ -19,22 +19,45 @@ export function shouldAck(userText: string): boolean {
 const LEADING_ACK =
   /^\s*(?:(?:네네|네|예|아|음)(?=[\s,.!?~]|$)|감사합니다|알겠습니다|그렇군요)[\s,.!?~]*/;
 
+// 맞장구는 두 개까지 뗍니다 ("네, 감사합니다. 도입은…").
+const MAX_ACKS = 2;
+
+/** 첫머리 맞장구를 MAX_ACKS개까지 떼고, 남은 글과 뗀 개수를 돌려줍니다. */
+function stripAcks(text: string): { rest: string; count: number } {
+  let rest = text;
+  let count = 0;
+  while (count < MAX_ACKS) {
+    const next = rest.replace(LEADING_ACK, '');
+    if (next === rest) break;
+    rest = next;
+    count++;
+  }
+  return { rest, count };
+}
+
 /**
  * 답 첫머리의 맞장구를 뗍니다 ("네, 예산은…" → "예산은…"). 즉시 반응("네네")을 이미 말했으므로
  * 겹치지 않게 하려는 것입니다. 떼고 나면 남는 말이 없으면 그대로 둡니다.
  */
 export function stripLeadingAck(text: string): string {
-  let out = text;
-  for (let i = 0; i < 2; i++) {
-    const next = out.replace(LEADING_ACK, '');
-    if (next === out) break;
-    out = next;
-  }
-  return out.trim() ? out : text;
+  const { rest } = stripAcks(text);
+  return rest.trim() ? rest : text;
 }
 
-// 맞장구가 토큰 여러 개로 나뉘어 올 수 있어 처음 몇 글자를 모았다가 판단합니다.
-const HOLD_CHARS = 12;
+// LEADING_ACK가 떼는 말. 모은 글이 이 말의 앞부분("감사합", "네")이면 아직 판단할 수 없습니다.
+const ACK_WORDS = ['네네', '네', '예', '아', '음', '감사합니다', '알겠습니다', '그렇군요'];
+
+/**
+ * 맞장구가 토큰 여러 개로 나뉘어 오므로, 모은 글만으로 첫머리를 판단할 수 있을 때까지 기다립니다.
+ * 떼고 남은 것이 없거나 남은 것이 맞장구의 앞부분일 수 있으면 아직입니다. 글자 수로 끊으면
+ * "알겠습니다. 감사합|니다."처럼 둘째 맞장구가 잘릴 수 있습니다(학습서 17-2 #43).
+ */
+function undecided(held: string): boolean {
+  const { rest, count } = stripAcks(held);
+  const head = rest.trimStart();
+  if (head === '') return true;
+  return count < MAX_ACKS && ACK_WORDS.some((word) => word.startsWith(head));
+}
 
 /** LLM 출력 스트림에서 답 첫머리의 맞장구를 뗍니다. 도구 호출·사용량 청크는 그대로 통과합니다. */
 export async function* withoutLeadingAck(
@@ -59,7 +82,7 @@ export async function* withoutLeadingAck(
       continue;
     }
     held += text;
-    if (held.length >= HOLD_CHARS) {
+    if (!undecided(held)) {
       yield stripLeadingAck(held);
       held = '';
       passing = true;
