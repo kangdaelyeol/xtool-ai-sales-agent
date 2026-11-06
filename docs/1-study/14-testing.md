@@ -2,6 +2,30 @@
 
 일반 소프트웨어는 같은 입력에 같은 출력이 나옵니다. 음성 에이전트는 그렇지 않습니다. LLM은 매번 조금씩 다른 답을 하고, STT는 같은 문장도 다르게 적고, 턴 감지는 소리의 미세한 차이에 반응합니다. 이 장은 **결정적인 부분과 확률적인 부분을 나눠** 각각 맞는 방법으로 검증하는 전략을 다룹니다.
 
+> (2026-11-06 추가) 이 장의 SDK 경로는 `agents/` = `node_modules/@livekit/agents/src/`(1.9.5), `plugin/` = `node_modules/@livekit/agents-plugin-anthropic/src/`(1.9.5), `sdk/` = 플러그인이 쓰는 `@anthropic-ai/sdk` 0.33.1의 `src/`입니다. 8·12장과 같은 약칭입니다. `vitest/`는 `node_modules/.pnpm/vitest@4.1.12_…/node_modules/vitest/dist/chunks/test.DNmyFkvJ.js`이고, vitest가 묶어 넣은 `@sinonjs/fake-timers`가 이 파일 안에 있습니다. 행 번호는 이 파일 기준이며, 파일 이름 끝의 해시는 vitest 버전마다 바뀝니다.
+
+(2026-11-06 추가) 이번 판에서는 테스트 도구가 "한 줄 아래에서" 무엇을 하는지를 더했습니다. 가짜 시계가 12장의 이벤트 루프 어디를 바꾸고 call-guard 테스트가 왜 `Async` 판이어야 하는지, 가짜 서버 테스트의 한계와 시간·취소·바이트로 넓히는 법, 테스트 더블의 이름(이상 14-3절), 통과율을 숫자로 읽는 법(14-5절), SDK 테스트 도구로 이 레포의 에이전트를 실제로 한 턴 돌려 본 결과(14-6절), CI가 못 잡는 것(14-7절)입니다. 그 과정에서 세 곳을 바로잡았습니다. 14-3절에서 이 레포의 가짜 서버 테스트를 "계약 테스트"라고 부른 것은 그 말의 보통 뜻과 다르고, 14-5절의 "2회차에 점수가 내려갔다"는 표본 6개로는 우연과 구별되지 않으며, 14-6절의 `withMockTools`는 SDK 예시대로 쓰면 `Agent.create`로 만든 이 레포의 에이전트에 끼워지지 않습니다. 12장처럼 코드로 확인한 것, 잰 것(실측), 추정을 구분해 적었습니다. 실습 스크립트 네 개는 키 없이 돕니다([lab/14-fake-clock.mjs](lab/14-fake-clock.mjs), [lab/14-fake-server.mjs](lab/14-fake-server.mjs), [lab/14-pass-rate.mjs](lab/14-pass-rate.mjs), [lab/14-sdk-session.mjs](lab/14-sdk-session.mjs)). 실측은 모두 Apple M1 Pro, Node 24.22에서 낸 값입니다. 깊은 내용은 "깊이 보기"에 두었으니 처음에는 건너뛰어도 됩니다.
+
+---
+
+## 이 장에서 쓰는 말 (2026-11-06 추가)
+
+처음 보면 막히는 말만 모았습니다. 전체 용어집은 [17장](17-glossary-and-next.md)이고, 이미 거기 있는 말(계약 테스트, 변경 감지 테스트, 불변식, 속성 기반 테스트, LLM-as-a-judge, SSE, TTFT)은 [17-1절](17-glossary-and-next.md#17-1-용어집)을 봅니다.
+
+| 말 | 뜻 |
+| --- | --- |
+| 테스트 더블 (test double) | 테스트에서 진짜 부품 대신 끼우는 것의 총칭입니다. 영화의 대역 배우(stunt double)에서 온 말이고, 하는 일에 따라 dummy·stub·spy·mock·fake로 나눕니다(14-3절 끝) |
+| 가짜 시계 (fake timers) | `setTimeout`·`Date` 같은 시간 함수를 테스트가 손으로 돌리는 시계로 바꾼 것입니다. vitest에서는 `vi.useFakeTimers()`로 켜고 `vi.advanceTimersByTime…`으로 흘려보냅니다(14-3절) |
+| 포트 0 (임시 포트) | `listen(0)`이라고 하면 운영체제가 임시 포트(ephemeral port) 범위에서 비어 있는 번호를 골라 줍니다. 이 Mac의 범위는 49152~65535입니다(`sysctl net.inet.ip.portrange`, 실측). 고른 번호는 `server.address().port`로 읽습니다(14-3절) |
+| 회귀 (regression) / 회귀 테스트 | 전에 되던 것이 변경 뒤에 안 되는 것 / 그것을 잡으려고 변경 때마다 다시 돌리는 테스트입니다. 이 레포의 단위 테스트와 시나리오 4회차가 그 역할입니다(14-5·14-7절) |
+| 변이 테스트 (mutation testing) | 코드를 일부러 조금씩 망가뜨린 "변이"를 만들어 테스트가 그것을 잡는지(변이를 "죽이는지") 보는 방법입니다. 테스트의 질을 재는 테스트입니다(14-2절) |
+| 골든 파일 (golden file) | 기대 출력을 파일로 저장해 두고 테스트가 그 파일과 비교하는 방법입니다. 출력이 바뀌면 사람이 차이를 보고 파일을 갱신합니다. vitest의 `toMatchFileSnapshot`이 같은 일을 합니다(14-3절) |
+| 좁은 통합 테스트 (narrow integration test) | 우리 코드와 외부 서비스를 잇는 코드까지만 진짜로 돌리고, 외부 서비스는 가짜로 두는 테스트입니다(Martin Fowler의 용어). `anthropic.test.ts`가 이것입니다(14-3절) |
+| 신뢰 상한 (upper confidence bound) | 관측 결과와 맞는 값 가운데 가장 나쁜 값입니다. "실패율의 95% 상한이 39%"는 실패율이 39%보다 큰 시나리오가 이런 결과를 낼 확률이 5% 미만이라는 뜻입니다(14-5절) |
+| 3의 규칙 (rule of three) | n번 시도해 한 번도 실패하지 않았을 때 실패율의 95% 상한을 3/n으로 어림하는 규칙입니다. ln 0.05 ≈ −3에서 나옵니다(14-5절) |
+| pass@k / pass^k | 같은 시나리오를 k번 돌려 한 번이라도 통과 / k번 모두 통과입니다. 통과율이 p면 각각 1 − (1 − p)^k, p^k입니다. `lk agent simulate --samples`가 둘 다 보고합니다(14-5절) |
+| frozen lockfile | lockfile을 고치지 않고, `package.json`과 맞지 않으면 설치를 멈추는 설치 방식입니다. pnpm은 CI 환경에서 이것을 기본으로 켭니다(14-7절) |
+
 ---
 
 ## 14-1. 무엇을 어떻게 검증하나: 층별 전략
@@ -12,12 +36,14 @@
   실제 음성 통화   │  lk agent console / Agent Console (맞장구, 끼어들기, 발음)
   시뮬레이션      │  가상 고객 LLM + 판정 LLM (scenarios.yaml)
   디버거          │  텍스트로 몇 턴 직접 (lk agent debugger)
-  계약 테스트      │  가짜 API 서버로 요청 본문 검사 (anthropic.test.ts)
+  계약 테스트      │  가짜 API 서버·주입한 fetch로 요청 검사 (anthropic.test.ts, index.test.ts)
   단위 테스트      │  순수 함수 (ack, pronunciation, transcript, prompt)
                  ▼ 빠름·싸고·결정적
 ```
 
 원칙은 일반 소프트웨어의 **테스트 피라미드**와 같습니다. **결정적으로 검증할 수 있는 것은 최대한 아래층으로 내립니다.** 그래서 이 프로젝트는 확률적인 LLM 주변의 규칙(맞장구 제거, 발음 변환, 오인식 보정, 프롬프트 구조)을 모두 **순수 함수로 떼어 내** 단위 테스트합니다. 1장의 원칙 1("확실해야 하는 것은 코드로")이 테스트 가능성까지 높여 주는 셈입니다.
+
+(2026-11-06 갱신) 그림의 "계약 테스트"는 이 책의 줄임말입니다. 업계에서 그 말은 보통 다른 기법을 가리키므로, 정확한 이름과 차이는 14-3절에서 봅니다. 서버 대신 fetch 함수를 주입하는 `index.test.ts`(2026-11-05 추가)도 같은 층입니다. 또 그림에는 없지만 SDK의 테스트 도구(14-6절)는 "디버거"와 "계약 테스트" 사이, 곧 방 없이 세션을 한 턴씩 돌리는 자리에 들어갑니다.
 
 ---
 
@@ -33,9 +59,12 @@ pnpm test        # vitest --run, API 키 없이 돎
 | `src/pronunciation.test.ts` | `toSpoken`, `pronunciationTransform` | 발음 변환, 경계 조건, **멱등성**, 스트림 분할, 마지막 조각 |
 | `src/transcript.test.ts` | `correctTranscript` | 실측 오인식 보정, 제품명이 아닌 말 보호 |
 | `src/prompt.test.ts` | `openingLine`, `parseCallContext`, `buildInstructions`, `cleanKnowledge`, `loadKnowledge` | 법적 고지 포함, 이름 없을 때 호칭, metadata 실패 처리, **캐시용 접두사 고정**, 지식은 고객 정보 앞·비면 칸 없음, **실제 지식 파일에 작성 안내가 새지 않음** (2026-11-04 고침, 아래) |
-| `src/models/anthropic.test.ts` | `VoiceAnthropicLLM` | 요청 본문에 thinking·effort·캐시가 들어가는지, temperature 없음, 생각 블록이 답에 안 섞임, prefill 방지 |
+| `src/models/anthropic.test.ts` | `VoiceAnthropicLLM` | 요청 본문에 thinking·effort·캐시가 들어가는지, temperature 없음, 생각 블록이 답에 안 섞임, prefill 방지. (2026-11-06 갱신) `prewarmUrl`이 있으면 미리 연결을 그 주소의 HEAD로 함 |
+| `src/models/index.test.ts` (2026-11-05 추가, 이 표에는 11-06 갱신) | `createBedrockClient` | Bedrock API 키 환경변수가 남아 있어도 IAM 키로 SigV4 서명함. 서버 없이 fetch를 주입해 `Authorization` 머리글만 봄(16-4절, 14-3절 깊이 보기의 비교) |
 | `src/call-guard.test.ts` (2026-11-03 추가) | `guardCall` | 무응답이면 끊음, **"여보세요?" 도중 대답하면 끊지 않음**, 최대 길이에 끊음, 통화가 닫히면 타이머 정지 |
 | `src/call-result.test.ts` (2026-11-03 추가, 11-04 보강) | `transcriptOf`, `addLatency` | 대화록에 고객·AI 말만 순서대로, 지시문·빈 말 제외. 지연 기록은 반올림해 쌓고 `-1`은 빼되 취소된 시도의 값은 남김(13-5절) |
+
+(2026-11-06 추가) 지금은 파일 8개, 테스트 34개이고 `pnpm test` 한 번이 1.4초 안팎입니다(실측). 그중 테스트 본문은 75ms이고, 나머지는 모듈을 변환하고 불러오는 시간입니다. vitest가 찍는 `import 5.91s`가 전체 시간보다 큰 것은 여러 작업자에서 동시에 불러온 시간을 더한 값이기 때문으로 봅니다(추정).
 
 ### 좋은 단위 테스트의 특징 (이 프로젝트에서 배울 점)
 
@@ -64,6 +93,8 @@ expect(loadKnowledge()).toBe('');   // 실제 knowledge/xtool.md가 비어 있�
 둘째 테스트는 **내용이 무엇이든 성립해야 하는 성질(불변식)**을 봅니다. 상담팀이 내용을 채워도 통과하고, 누가 주석을 닫지 않고 저장하면 실패합니다. 주석이 닫히지 않으면 `cleanKnowledge`의 정규식이 맞지 않아 안내문 전체가 지시문에 들어가므로(9-2⑨), 이 테스트는 **실제로 일어날 수 있는 사고를 잡는** 테스트가 됐습니다. 위의 3번 "성질을 테스트합니다"를 데이터 파일에 적용한 셈입니다.
 
 테스트를 바꾼 뒤에는 **새 테스트가 정말 그 차이를 구분하는지** 따로 확인했습니다. 템플릿 끝에 내용을 붙인 입력은 통과하고, 닫히지 않은 주석은 실패하는지 직접 돌려 봤습니다. 통과만 확인하면 "아무것도 보지 않는 테스트"와 구별되지 않습니다. 같은 생각을 코드 쪽에서 체계화한 것이 **변이 테스트(mutation testing)**입니다. 코드를 일부러 조금씩 망가뜨려 테스트가 그것을 잡는지 봅니다. 14-3절의 call-guard 테스트에서 "고치기 전에 먼저 실패하는 것을 확인"한 것도 같은 질문입니다.
+
+(2026-11-06 추가) 이번 판의 실습도 같은 질문을 했는데, 코드 대신 **테스트 쪽**을 망가뜨렸습니다. call-guard 테스트의 흘려보내기를 동기 판으로 바꾸면 실패하는지(14-3절 깊이 보기, 실패함), 가짜 도구를 잘못된 생성자로 끼우면 테스트가 알아채는지(14-6절, 순서만 단언하면 못 알아챔), 테스트 파일에 타입 오류를 넣으면 CI가 잡는지(14-7절, 못 잡음)입니다. 테스트가 통과하는 것만으로는 그 테스트가 무엇을 지키는지 알 수 없다는 점은 테스트 코드에도 똑같이 적용됩니다.
 
 ---
 
@@ -109,9 +140,86 @@ expect(res.text).toBe('네, 좋아요.');                         // 생각 블�
 - 플러그인 버전을 올려 `extraKwargs` 처리가 바뀌면 테스트가 깨져서 알려 줍니다.
 - API 키도, 비용도, 확률성도 없습니다.
 
-이 기법을 **계약 테스트(contract test)** 또는 "경계 가로채기"라고 부를 수 있습니다. 외부 서비스와 주고받는 **형식(계약)**을 검증합니다. SSE 응답을 직접 만드는 `sse()` 함수는 8-6절의 스트리밍 이벤트 구조를 그대로 보여 주는 교재이기도 합니다.
+(2026-11-06 갱신) 처음에는 이 기법을 **계약 테스트(contract test)**라고 불렀는데, 그 말은 보통 다른 것을 가리킵니다.
 
-포트 0으로 listen하는 것도 작은 요령입니다. 운영체제가 비어 있는 포트를 골라 주므로 테스트끼리 포트가 충돌하지 않습니다.
+- 업계에서 계약 테스트라고 하면 Pact 같은 도구로 하는 **소비자 주도 계약 테스트(consumer-driven contract test)**를 뜻하는 경우가 많습니다. 소비자(API를 부르는 쪽, 여기서는 우리)가 "이런 요청에 이런 응답을 기대한다"를 계약 파일로 남기고, 제공자(API를 만드는 쪽)도 **같은 파일로** 자기 서버를 검증합니다. 양쪽이 같은 계약을 시험하므로, 제공자가 형식을 바꾸면 제공자 쪽 CI가 먼저 깨집니다.
+- Martin Fowler는 이 말을 조금 다르게, "가짜(테스트 더블)가 아직 진짜와 같게 동작하는지 진짜 서비스를 불러 확인하는 테스트"라는 뜻으로 썼습니다. 이쪽도 진짜 서비스를 부릅니다.
+- 이 레포의 테스트는 둘 다 아닙니다. Anthropic은 우리 계약 파일로 자기 서버를 시험해 주지 않고, 이 테스트는 진짜 서버를 한 번도 부르지 않습니다. 정확한 이름은 Fowler가 말하는 **좁은 통합 테스트(narrow integration test)**입니다. 우리 코드와 외부 서비스를 잇는 코드(플러그인·SDK·HTTP 클라이언트)는 진짜로 돌리고, 건너편 서버만 가짜로 둡니다.
+
+이 책에서는 계속 줄여서 "계약 테스트"라고 부르되, 아래 깊이 보기처럼 **건너편이 바뀌는 것은 잡지 못한다**는 점을 기억해 둡니다. SSE 응답을 직접 만드는 `sse()` 함수는 8-6절의 스트리밍 이벤트 구조를 그대로 보여 주는 교재이기도 합니다.
+
+포트 0으로 listen하는 것도 작은 요령입니다. 운영체제가 비어 있는 포트를 골라 주므로 테스트끼리 포트가 충돌하지 않습니다. (2026-11-06 추가) 운영체제는 포트 번호 0을 "아무 데나"로 받아 임시 포트 범위(이 Mac은 49152~65535, 실측)에서 빈 번호를 줍니다. 그래서 테스트는 번호를 미리 알 수 없고, `listen`이 끝난 뒤 `server.address().port`로 읽어 `baseURL`을 만듭니다(64행). vitest는 테스트 파일을 여러 작업자에서 동시에 돌리므로, 고정 번호(예: 8080)를 쓰면 두 파일이 같은 번호를 잡으려다 `EADDRINUSE`로 실패할 수 있습니다.
+
+#### 깊이 보기: 가짜 서버 테스트의 한계와 확장 — 골든 파일, 시간, 취소, 바이트 (2026-11-06 추가)
+
+**한계: 건너편은 우리가 쓴 대로다.** 가짜 서버가 돌려주는 `RESPONSE`는 사람이 손으로 쓴 SSE입니다([src/models/anthropic.test.ts](../../src/models/anthropic.test.ts) 18~40행). 그래서 이 테스트가 지키는 것은 "우리 코드가 **우리가 알고 있는** Anthropic 형식을 올바로 다룬다"까지입니다.
+
+- Anthropic이 형식을 바꿔도(새 이벤트 종류, 필드 이름) 테스트는 그대로 통과합니다. 테스트 안의 형식은 바뀌지 않았기 때문입니다. 이 경우 운영에서 처음 드러납니다.
+- 손으로 쓴 형식이 처음부터 실제와 조금 달라도 통과합니다. 예를 들어 이 테스트의 생각 블록은 `thinking_delta` 하나 뒤에 `signature_delta` 하나인데, 실제 Haiku 5.5가 이 순서와 개수로 보내는지는 테스트가 말해 주지 않습니다(이 장에서 실제 응답을 녹화해 보지는 않음).
+- 요청 쪽도 같습니다. `output_config.effort`가 본문에 들어가는 것은 확인하지만, 실제 API가 그 필드를 받아 주는지는 모릅니다. 그것은 `pnpm check:llm`처럼 진짜 API를 부르는 스크립트가 확인합니다.
+
+**제안: 진짜 응답을 한 번 녹화해 골든 파일로.** 이 레포에는 없는 방법입니다.
+
+1. 키를 가진 개발자가 한 번, 테스트와 같은 요청을 실제 API에 보내고 받은 SSE 바이트를 그대로 파일로 저장합니다(예: `src/models/__fixtures__/haiku-5-5-thinking-off.sse`). 공개 저장소이므로 메시지 `id`, `request-id` 머리글 같은 값은 가립니다.
+2. 가짜 서버는 손으로 쓴 `RESPONSE` 대신 이 파일을 돌려줍니다. 이제 테스트는 "실제로 한 번 관측된 형식"을 시험합니다.
+3. 모델·SDK·플러그인을 올릴 때 다시 녹화해 이전 파일과의 **차이(diff)**를 봅니다. 그 차이가 곧 공급사가 바꾼 것입니다. 녹화를 정기적으로(예: 주 1회) 돌려 차이가 나면 알리게 하면 Fowler가 말한 의미의 계약 테스트가 됩니다. 키·비용·확률성 때문에 PR마다 도는 CI에는 넣지 않습니다.
+4. 요청 쪽은 vitest의 `toMatchFileSnapshot`으로 "우리가 보내는 본문"을 골든 파일로 둘 수 있습니다. 지시문 한 글자만 바뀌어도 차이가 나므로, 캐시 접두사(8장)를 깨는 변경을 PR 리뷰에서 바로 보게 됩니다. 대신 지시문을 고칠 때마다 `vitest -u`로 갱신해야 하므로, 14-2절의 변경 감지 테스트가 되지 않게 **고정해야 하는 부분(구조·옵션·도구 정의)만** 떼어 스냅숏합니다.
+
+**확장: 시간·취소·바이트를 시험에 넣기.** 지금의 가짜 서버는 `res.end(RESPONSE)`로 응답 전체를 한 번에 씁니다. 실제 서버는 이벤트를 시간을 두고 하나씩 쓰고, 클라이언트는 중간에 끊을 수 있으며, TCP는 바이트를 아무 데서나 나눕니다. [lab/14-fake-server.mjs](lab/14-fake-server.mjs)가 이 셋을 같은 모양의 가짜 서버(127.0.0.1, 포트 0)에 넣어 실제 `VoiceAnthropicLLM`으로 돌렸습니다(실측, 시각은 요청 도착 기준).
+
+```text
+1. 시간: 서버가 res.write로 이벤트를 하나씩 씀
+   이벤트를 하나씩 씀                    쓴 시각 "네, " 200ms, "예산은…" 400ms → 받은 시각 404ms, 606ms
+   이벤트마다 SSE 주석 ": k\n"을 덧붙임   쓴 시각 같음                       → 받은 시각 208ms, 405ms
+```
+
+- 글 조각이 자기를 쓴 시각이 아니라 **다음 이벤트를 쓴 시각**에 나옵니다. SDK 0.33.1의 SSE 분리기가 버퍼 맨 끝의 `\n\n`을 보지 못하는 문제(17-2 #36, 12-5절 깊이 보기)가 플러그인 경로 전체에서 그대로 보이는 것입니다. 이벤트 뒤에 바이트 몇 개(SSE 주석 한 줄. SDK의 해석기는 `:`로 시작하는 줄을 버림, `sdk/streaming.ts` 329)만 붙이면 제때 나오는 것이 원인 확인입니다. 8장 실습은 SDK만 떼어 같은 현상을 쟀습니다([8-6절](08-llm.md)).
+- 테스트로 옮기면 "첫 글 조각은 서버가 쓴 뒤 50ms 안에 나온다" 같은 단언 하나가 이 지연을 잡습니다. 지금 이 레포에 넣으면 **실패하는** 테스트입니다. vitest의 `it.fails`(테스트가 실패해야 통과로 침)로 "알려진 버그"를 적어 두면, 플러그인이 고쳐진 SDK로 올라가는 날 그 테스트가 실패해 알려 줍니다.
+
+```text
+2. 취소: 첫 글 조각을 받자마자 취소
+   플러그인 경로 (LLMStream.close())          취소 204ms → 서버가 쓴 묶음 10/10, finish 952ms, close 952ms → 응답을 끝까지 씀
+   비교: SDK 0.33.1을 직접 쓰고 for await break  취소 200ms → 서버가 쓴 묶음 3/10, finish 없음, close 202ms → 클라이언트가 먼저 끊음
+```
+
+- 서버 쪽에서는 `res`의 `'close'`가 `'finish'`보다 먼저 오면(또는 `'finish'` 없이 오면) 클라이언트가 끊은 것입니다. 플러그인 경로는 끝까지 읽어 17-2 #41(12-8절 함정 2의 "취소가 HTTP까지 안 감")이 재현됩니다. 같은 SDK도 소비자가 `break`하면 2ms 만에 연결을 끊으므로(`sdk/streaming.ts` 83~84, `finally`의 `controller.abort()`), 문제는 플러그인이 `signal`을 넘기지 않고 끝까지 읽는 데 있습니다.
+- 테스트로 옮기면 "취소하면 서버가 쓴 묶음이 전체보다 적다"가 단언입니다. 이것도 지금은 실패합니다. 11-4절과 12-8절의 실습이 같은 현상을 손으로 확인했다면, 이 모양은 그것을 **CI가 계속 지켜보는** 회귀 테스트로 바꿉니다.
+
+```text
+3-A. 응답의 한글을 글자 중간에서 잘라 두 번에 씀 (20ms 간격)
+   자른 자리 8곳("네"·"좋"·"아"·"요" 각각 1바이트 뒤, 2바이트 뒤) 중 res.text가 "네, 좋아요."인 경우 8/8
+
+3-B. 요청 본문이 커지면: 가짜 서버의 data 이벤트와 raw += chunk
+   실제 지시문 (buildInstructions, 지식 없음)      7,365바이트  data  1번 [7365]            U+FFFD 0개
+   지시문 + 한글 약 64KB                         75,365바이트  data  2번 [65065, 10300]     U+FFFD 3개, JSON.parse 성공
+   지시문 + 한글 약 256KB                       292,965바이트  data  5번 [65064, 65536, …]  U+FFFD 2개, JSON.parse 성공
+   지시문 + 한글 약 1MB                       1,163,365바이트  data 18번 [65063, 65536, …]  U+FFFD 22개, JSON.parse 성공
+```
+
+- 응답 쪽은 어디서 잘라도 안전했습니다. SDK가 `\n\n`까지 바이트로 모은 뒤 디코드하기 때문입니다(12-5절 깊이 보기). 지금은 통과하는 시험이지만, SDK가 바뀌어도 이 성질이 지켜지는지 보는 회귀 테스트로 둘 만합니다.
+- 요청 쪽은 12-5절이 "몇 KB부터 나뉘는지는 재지 않아 추정"이라고 남긴 것을 이번에 쟀습니다. 이 기계의 루프백에서는 본문이 약 64KiB(65,536바이트)를 넘자 `data` 이벤트가 나뉘었습니다. 첫 조각이 65,065바이트 안팎으로 조금 작은 것은 같은 64KiB 읽기에 HTTP 머리글이 먼저 들어가기 때문으로 봅니다(추정). 나뉜 자리가 한글 한가운데면 `raw += chunk`(테스트 55~56행과 같은 모양)가 U+FFFD를 넣었고(64KB의 3개는 경계 한 곳이 글자 첫 바이트 뒤에서 잘린 것), `JSON.parse`는 네 경우 모두 **성공**했습니다(17-2 #45). 개수는 실행마다 조금 다릅니다(256KB에서 2개 또는 5개).
+- 지금 지시문(7.4KB)은 한 번에 오므로 이 레포의 테스트는 안전합니다. 지식 파일(`knowledge/xtool.md`)이 수십 KB로 커지고 그 지시문을 실은 테스트가 생기면 드러납니다.
+
+**두 방식 비교: 로컬 HTTP 서버 vs fetch 주입.** [src/models/index.test.ts](../../src/models/index.test.ts)는 서버를 띄우지 않고 SDK 클라이언트에 `fetch` 함수를 주입합니다(`withOptions({ fetch })`). `VoiceAnthropicLLM`에도 SDK 0.33.1 클라이언트를 `client`로 넘기면 같은 방식을 쓸 수 있어서, 실습 4번에서 둘을 나란히 봤습니다(실측).
+
+```text
+4-A. 응답 708바이트를 1바이트 조각 708개로: res.text "네, 좋아요."
+     요청 본문은 fetch에 문자열(typeof string)로 넘어옴 → 바이트로 나뉘는 일 자체가 없음
+4-B. 첫 글 뒤 LLMStream.close(): 응답 스트림 pull 10/10번, cancel 불림 false, fetch에 넘어온 signal.aborted false
+```
+
+| | 로컬 HTTP 서버 (`anthropic.test.ts`) | fetch 주입 (`index.test.ts`) |
+| --- | --- | --- |
+| 진짜로 거치는 코드 | 우리 코드 + 플러그인 + SDK + SDK의 HTTP 클라이언트 + 소켓. SDK 0.33.1은 Node에서 전역 fetch가 아니라 `node-fetch` 2.7.0과 `agentkeepalive`를 씁니다(`sdk/_shims/node-runtime.ts` 4·7·41~42·68) | 우리 코드 + 플러그인 + SDK까지. HTTP 클라이언트부터 아래는 없음 |
+| 요청 검사 | 서버가 받은 **바이트**(머리글·본문). 64KiB를 넘으면 조각으로 옴 | fetch에 넘어온 **값**(`init.body`는 문자열). 바이트로 나뉘지 않음 |
+| 응답 조각 경계 | `res.write`로 나누지만 TCP가 합칠 수 있어, 경계를 지키려면 시간 간격을 둬야 함 | `ReadableStream`의 `enqueue` 단위로 **정확히** 정함(1바이트씩도 가능) |
+| 시간 | 서버가 쓰는 시각을 정해 첫 글까지의 시간을 잼 | `pull` 안에서 기다려 흉내 냄 |
+| 취소 | 서버의 `'close'`와 `'finish'` 순서로 연결이 끊겼는지 봄 | 응답 스트림의 `cancel`이 불렸는지, `init.signal.aborted`로 봄 |
+| 준비 | 포트·서버 정리(`afterAll`) 필요 | 함수 하나 |
+| 못 보는 것 | 진짜 API의 형식(위 한계) | 위에 더해 HTTP 층(머리글 직렬화, keep-alive, 압축, 프록시, TLS) |
+| 잘 맞는 경우 | 플러그인이 HTTP를 실제로 어떻게 쓰는지까지 볼 때 | SDK가 만든 요청 값(인증 머리글 등)만 볼 때, 바이트 경계를 정확히 시험할 때 |
+
+`index.test.ts`가 fetch를 고른 것은 보고 싶은 것이 SigV4 서명 머리글 하나이고, Bedrock 주소를 그대로 둔 채 요청을 가로챌 수 있기 때문입니다. 반대로 위 2번의 "연결이 정말 끊겼나"는 소켓이 있어야 보이므로 로컬 서버 쪽이 맞습니다. fetch 주입으로도 4-B처럼 "끝까지 읽었다"(pull 10/10)는 보이지만, 그것이 실제 연결 종료로 이어지는지는 알 수 없습니다.
 
 ### 가짜 세션과 가짜 시계: 시간과 이벤트가 얽힌 코드 테스트하기 (2026-11-03 추가)
 
@@ -138,10 +246,104 @@ function fakeSession() {
 | --- | --- |
 | **필요한 만큼만 흉내** | `guardCall`이 쓰는 것은 `on`(이벤트 구독), `say().waitForPlayout()`, `userState`뿐입니다. 진짜 `AgentSession` 전체를 만들 필요 없이 Node의 `EventEmitter`에 이 셋만 붙입니다. `as unknown as voice.AgentSession`으로 타입만 맞춥니다 |
 | **재생 완료 시점을 테스트가 쥠** | `say()`가 돌려주는 Promise의 `resolve`를 바깥(`finishPlayout`)에 꺼내 둡니다. 테스트가 "지금 '여보세요?'가 끝났다"를 원하는 순간에 일으킬 수 있습니다 |
-| **가짜 시계** | `vi.useFakeTimers()`로 `setTimeout`을 가짜로 바꾸고, `vi.advanceTimersByTimeAsync(10_000)`로 10초를 즉시 흘려보냅니다. `Async` 판은 그 사이 Promise 후속 처리(`.then`)도 실행해 줍니다 |
+| **가짜 시계** | `vi.useFakeTimers()`로 `setTimeout`을 가짜로 바꾸고, `vi.advanceTimersByTimeAsync(10_000)`로 10초를 즉시 흘려보냅니다. (2026-11-06 갱신) `Async` 판은 시작하기 전과 가짜 타이머를 하나 실행할 때마다 진짜 이벤트 루프로 한 번씩 양보해, 그사이 Promise 후속 처리(`.then`)가 돌게 합니다. 이 테스트는 그것이 없으면 실패합니다(아래 깊이 보기) |
 | **사건 순서를 그대로 적기** | `away` → `speaking`(대답) → 재생 끝 → `listening` 순서를 테스트에 그대로 씁니다. 버그가 "순서"에서 나오므로 순서를 적는 것이 곧 재현입니다 |
 
 그리고 이 테스트는 **고치기 전에 먼저 썼습니다.** "'여보세요?' 도중에 대답하면 무응답으로 세지 않는다" 테스트가 실패하는 것(`endCall`이 1번 불림)을 확인한 뒤 코드를 고쳤고, 고친 뒤 통과했습니다. 버그를 재현하는 테스트를 먼저 쓰면 ① 버그가 진짜인지 확인되고 ② 고친 것이 맞는지 확인되며 ③ 나중에 같은 버그가 돌아오는 것을 막습니다. [AGENTS.md](../../AGENTS.md)가 "추측하지 말고 시나리오를 먼저 쓰라"고 한 것과 같은 원칙을 단위 테스트 수준에서 적용한 것입니다.
+
+#### 깊이 보기: 가짜 시계는 이벤트 루프의 어디를 바꾸나 (2026-11-06 추가)
+
+12-2절 깊이 보기의 그림(루프의 여섯 단계, 콜백마다 비우는 nextTick 큐와 마이크로태스크 큐)을 그대로 씁니다. 가짜 시계는 그 그림에서 **시간 쪽만** 바꾸고 **차례 쪽은 그대로** 둡니다. 이 차이가 call-guard 테스트의 `Async`를 설명합니다.
+
+**무엇을 바꾸나 (코드로 확인).** vitest 4.1.12는 `@sinonjs/fake-timers`를 묶어 넣었습니다(vitest 패키지의 `LICENSE.md` 184행). `vi.useFakeTimers()`는 그 라이브러리가 아는 시간 함수 목록에서 두 개만 빼고 모두 가짜로 바꿉니다.
+
+```js
+// vitest/ 3299 (FakeTimers.useFakeTimers)
+const toFake = Object.keys(this._fakeTimers.timers).filter(
+  (timer) => timer !== 'nextTick' && timer !== 'queueMicrotask',
+);
+```
+
+목록(`vitest/` 2036~2085)은 `setTimeout`·`clearTimeout`·`setInterval`·`clearInterval`·`Date`·`setImmediate`·`clearImmediate`·`process.hrtime`(`bigint` 포함, 2165)·`performance`·`Intl`과, Node에는 없는 `requestAnimationFrame` 등입니다. [lab/14-fake-clock.mjs](lab/14-fake-clock.mjs) 1번이 vitest의 `vi`를 불러 전역 함수가 바뀌었는지 직접 비교했습니다(실측).
+
+```text
+setTimeout · setImmediate · setInterval · Date · performance.now · process.hrtime   가짜로 바뀜
+process.nextTick · queueMicrotask                                                 진짜 그대로
+진짜 30ms를 기다린 뒤: Date.now() 차 0ms, performance.now() 차 0ms   (흘려보내기 전까지 시계가 멈춰 있음)
+```
+
+Promise의 `.then`은 처음부터 이 목록에 없습니다. `.then`이 들어가는 V8의 마이크로태스크 큐는 JavaScript 함수 하나를 바꿔치기해서 손댈 수 있는 대상이 아니기 때문입니다. 아래 모든 차이가 여기서 나옵니다.
+
+**두 흘려보내기 함수 (코드로 확인).**
+
+| | `vi.advanceTimersByTime(ms)` | `vi.advanceTimersByTimeAsync(ms)` |
+| --- | --- | --- |
+| 부르는 것 | `clock.tick` → `doTick(ms, false)` (`vitest/` 3270~3272, 2532~2534) | `clock.tickAsync` → `doTick(ms, true, …)` (3273~3275, 2541~2552) |
+| 시작 전 | 바로 시작 | `originalSetTimeout(…)`으로 한 번 양보한 뒤 시작 |
+| 타이머 사이 | 쉬지 않고 범위 안의 타이머를 차례로 실행 | 타이머를 **하나** 실행할 때마다 `originalSetTimeout(nextPromiseTick)`으로 양보하고 일단 `return` (2449~2454) |
+| 돌려주는 것 | 숫자(새 가짜 시각) | Promise |
+
+`originalSetTimeout`이 무엇인지가 핵심입니다.
+
+```js
+// vitest/ 2088 (fake-timers의 withGlobal: 가짜를 설치하기 전에 잡아 둠)
+const originalSetTimeout = _global.setImmediate || _global.setTimeout;
+```
+
+Node에서는 **진짜 `setImmediate`**입니다. 그래서 `Async` 판의 "양보"는 진짜 루프를 check 단계까지 돌리는 것이고(12-2절), 그사이 콜백 하나가 끝날 때마다 nextTick 큐와 마이크로태스크 큐가 비워집니다. 동기 판도 시작할 때와 타이머마다 `runJobs`(1534~1550)를 부르지만, 이것이 비우는 것은 fake-timers가 가로챈 `nextTick`·`queueMicrotask` 작업 목록(`clock.jobs`)뿐입니다. vitest 기본값은 그 둘을 가로채지 않으므로 이 목록은 늘 비어 있고, Promise의 `.then`은 동기 판이 끝나 테스트 함수가 `await`할 때까지 한 번도 돌지 못합니다.
+
+**call-guard 첫 테스트를 단계별로.** 실습 2번은 실제 `guardCall`([src/call-guard.ts](../../src/call-guard.ts))에 테스트와 같은 가짜 세션을 붙이고, 단계마다 가짜 타이머 수와 가짜 시각을 찍었습니다(실측). 칸은 "타이머 수 / 가짜 시각 / `endCall` 횟수"입니다.
+
+| 단계 | 일어나는 일 | `Async` 판 | 동기 판 |
+| --- | --- | --- | --- |
+| ① `fakeSession()` | `guardCall`이 최대 길이 타이머(8분)를 검(call-guard.ts 27행) | 1 / +0 / 0 | 1 / +0 / 0 |
+| ② `setUserState('away')` | 듣는 함수가 `say('여보세요?')`를 부르고 `waitForPlayout().then(…)`을 걺(36~37행) | 1 / +0 / 0 | 1 / +0 / 0 |
+| ③ `finishPlayout()` | 재생 Promise가 풀림 → `.then` 콜백이 **마이크로태스크 큐에 들어감**. 아직 안 돎 | 1 / +0 / 0 | 1 / +0 / 0 |
+| ④ 흘려보내기를 부른 직후 | `Async`: 진짜 `setImmediate`만 걸고 돌아옴. 동기: 범위 [+0, +10초] 안에 타이머가 없으니 시각만 옮기고 끝 | 1 / +0 / 0 | 1 / **+10000** / 0 |
+| ⑤ 테스트가 `await`한 뒤 | 마이크로태스크가 돎: `.then`이 `userState === 'away'`를 보고 무응답 타이머를 "지금 + 10초"에 검(39~43행). `Async`는 그다음 check 단계에서 `doTick`을 시작하고, 그 타이머가 범위(≤ +10초) 안이라 실행 | 1 / +10000 / **1** | **2** / +10000 / **0** |
+
+- 동기 판의 무응답 타이머는 ⑤에서야 만들어지는데, 그때 가짜 시각이 이미 +10초라 **+20초**에 울립니다. 바로 다음 줄의 `expect(call.endCall).toHaveBeenCalledWith(…, 'no_response')`는 그 전에 검사하므로 실패합니다.
+- ③ 직후에 넣어 둔 실습의 `queueMicrotask`는 두 판 모두 "타이머 2개"를 봤습니다. 마이크로태스크는 넣은 순서대로 돌므로(12-2절), `finishPlayout()`이 넣은 `.then`이 먼저 돌았다는 뜻입니다.
+- 실습은 vitest를 테스트 실행기 없이 불러 쓰므로(스크립트 머리말), 같은 결과를 **실제 vitest로도** 확인했습니다. 테스트 파일을 레포 밖 임시 폴더에 복사해 판을 셋 만들고 `vitest run`으로 돌렸습니다(실측). 원본(`Async`)은 통과했고, 동기 판은 `AssertionError: expected "vi.fn()" to be called with arguments: [ Any<String>, 'no_response' ]`, `Number of calls: 0`으로 실패했으며, 동기 판 앞에 `await Promise.resolve()` 한 줄을 넣은 판은 통과했습니다. 마지막 판이 통과하는 것은 `.then`이 이미 큐에 들어 있어 `await` 한 번으로 충분하기 때문입니다. 사슬이 한 단계만 길어져도(예: `waitForPlayout()`이 다른 Promise를 한 번 더 기다리면) 다시 깨지므로, 바른 해법은 `Async` 판입니다.
+
+**"타이머 → Promise → 타이머"인 코드.** 실습 3번은 `await new Promise(r => setTimeout(r, 1000))`를 다섯 번 하는 루프를 5초 흘려보냈습니다(실측).
+
+```text
+advanceTimersByTime(5000)        돌려준 값을 await한 뒤 1번 실행 (가짜 시각 +5000ms, 남은 타이머 1개)
+advanceTimersByTimeAsync(5000)   돌려준 값을 await한 뒤 5번 실행 (가짜 시각 +5000ms, 남은 타이머 0개)
+```
+
+동기 판은 첫 타이머를 울린 뒤 `await` 다음 줄(마이크로태스크)이 돌 기회를 주지 않으므로, 두 번째 타이머가 범위 안에 생기지 않습니다. 그사이 시각만 +5초로 가 버려 두 번째 타이머는 +6초에 걸립니다. 규칙으로 줄이면, **타이머와 타이머 사이에 Promise가 끼는 코드는 `Async` 판으로** 흘려보냅니다. 이 레포에서는 `guardCall`(재생 Promise 뒤에 타이머)이 그렇고, SDK의 재시도(`delay` 뒤에 다시 요청)나 FakeLLM의 `ttft`(`agents/utils.ts` 906~918의 `delay`가 `setTimeout`)를 가짜 시계 아래에서 시험할 때도 같습니다.
+
+**가짜 시계가 함께 바꾸는 것 (실습 4번, 실측).**
+
+```text
+"await new Promise(r => setImmediate(r))"로 양보하는 코드: 진짜 50ms 뒤 풀림? false
+advanceTimersByTimeAsync(0) 뒤 풀림? true
+performance.now()로 잰 "300ms 걸리는 일": 코드가 잰 값 300ms, 실제로 걸린 시간 0.1ms
+```
+
+- 12-2절 실습 4는 긴 계산을 `setImmediate`로 쪼개 루프에 숨 쉴 틈을 주라고 했습니다. 그렇게 쪼갠 코드는 가짜 시계 아래에서 **멈춥니다.** `setImmediate`도 가짜라 흘려보내기 전까지 콜백이 안 돌기 때문입니다. 흘려보내기 함수 자신이 멈추지 않는 것은, 설치 **전**에 잡아 둔 진짜 `setImmediate`로 양보하기 때문입니다(2088).
+- `performance.now()`·`Date.now()`·`process.hrtime`으로 잰 지연은 **가짜 시각**입니다. SDK의 `ttftMs`도 `process.hrtime.bigint()`로 재므로(`agents/llm/llm.ts` 382~403) 가짜 시계 아래에서는 테스트가 흘려보낸 만큼이 나올 것입니다(코드에 비춘 추정, SDK 지표를 가짜 시계 아래에서 재 보지는 않음). 계산 로직을 시험하기에는 좋지만 "실제로 빠른가"는 알 수 없습니다. 실제 지연은 13장처럼 진짜 시계로 잽니다.
+- 가짜로 바꿀 것을 줄이려면 `vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })`처럼 목록을 줍니다. 위 3299행에서 보듯 사용자가 준 `toFake`가 있으면 기본 목록 대신 그것을 씁니다.
+
+정리하면, 가짜 시계는 **시간**을 테스트의 손에 쥐여 주지만 **차례**(마이크로태스크)는 여전히 진짜 루프의 것입니다. 둘이 얽힌 곳에서 `Async` 판이 필요합니다.
+
+### 테스트 더블: dummy, stub, spy, mock, fake (2026-11-06 추가)
+
+이 장에서 "가짜"라는 말을 여러 뜻으로 썼습니다. 테스트에서 진짜 부품 대신 끼우는 것을 통틀어 **테스트 더블(test double)**이라고 하고, Gerard Meszaros가 『xUnit Test Patterns』(2007)에서 하는 일에 따라 다섯으로 나눴습니다. Martin Fowler의 글 "Mocks Aren't Stubs"가 이 구분을 널리 알렸습니다.
+
+| 이름 | 하는 일 | 검증 방식 | 이 레포의 예 |
+| --- | --- | --- | --- |
+| dummy | 자리만 채우고 쓰이지 않음 | 없음 | `apiKey: 'test'` (가짜 서버는 키를 보지 않음) |
+| stub | 정해 둔 답을 돌려줌(테스트 대상의 간접 입력) | 끝난 뒤 상태를 봄 | `index.test.ts`의 주입 fetch(늘 `400 {}`), `vi.stubEnv`, FakeLLM(입력 글별로 정해진 답) |
+| spy | stub + 불린 내용을 기록 | 끝난 뒤 기록을 검사 | `vi.fn(async () => {})`인 `endCall`(`toHaveBeenCalledWith`), `authorization`을 기록하는 주입 fetch |
+| mock | 기대하는 호출을 **미리** 정해 두고, 어긋나면 그 자리에서 실패 | 호출되는 중에 검사 | 이 레포에는 없음 |
+| fake | 진짜처럼 동작하는 가벼운 구현 | 끝난 뒤 상태를 봄 | `fakeSession()`(진짜 EventEmitter + 재생 Promise), 가짜 HTTP 서버, 가짜 시계 |
+
+- 이름이 도구마다 어긋납니다. vitest는 `vi.fn`을 "mock function"이라고 부르지만, 기대를 미리 걸지 않고 끝난 뒤 기록을 검사하므로 Meszaros의 분류로는 **spy**입니다. LiveKit의 `FakeLLM`은 이름이 fake지만 입력 글로 답을 찾는 표이므로 stub에 가깝고(`agents/voice/testing/fake_llm.ts` 58~60·79), `withMockTools`도 정해진 값을 돌려주는 stub입니다. 이름보다 "무엇을 대신하고, 무엇으로 검증하나"를 봅니다.
+- 한 더블이 여러 역할을 하기도 합니다. 가짜 HTTP 서버는 fake이면서 `lastBody`를 기록하는 spy입니다.
+- 더블이 진짜와 달라지면 테스트는 거짓말을 합니다. 가짜 서버의 SSE(위 깊이 보기의 한계), `fakeSession`이 흉내 낸 세 가지(`on`·`say`·`userState`), FakeLLM의 3글자 조각이 모두 "진짜는 이렇게 동작한다"는 가정입니다. 그래서 더블은 가짜 세션 표의 "필요한 만큼만 흉내"처럼 **쓰이는 만큼만** 흉내 내고, 더블이 정말 쓰였는지도 확인합니다(14-6절의 `withMockTools` 함정).
 
 ---
 
@@ -235,7 +437,7 @@ LiveKit Cloud의 시뮬레이터                      우리 에이전트 (워�
 
 시뮬레이션은 돌릴 때마다 결과가 다를 수 있습니다. 가상 고객도, 에이전트도, 판정도 LLM이기 때문입니다.
 
-- **한 번 통과는 증거가 약합니다.** 같은 시나리오를 여러 번(예: 5~10회) 돌려 통과율을 봅니다.
+- **한 번 통과는 증거가 약합니다.** 같은 시나리오를 여러 번(예: 5~10회) 돌려 통과율을 봅니다. (2026-11-06 갱신) CLI의 `--samples`는 LiveKit Cloud에서 1이나 3만 받으므로(`lk agent simulate --help`, CLI 2.19.3), 그보다 많이 돌리려면 실행(run)을 여러 번 합니다. 몇 번이면 무엇을 말할 수 있는지는 아래 "깊이 보기: 통과율의 통계"에서 숫자로 봅니다.
 - 실패하면 판정 이유를 읽고, **에이전트가 틀렸는지 판정이 틀렸는지 시나리오가 모호했는지** 먼저 가립니다.
 - PoC의 "Haiku 5.5 vs GPT-6 Luna" 비교도 [5-poc-results.md](../5-poc-results.md)가 "한 번씩 돌린 결과라 표본이 작다"고 단서를 달았습니다. 모델 비교는 시나리오 묶음을 여러 번 돌려야 믿을 수 있습니다.
 
@@ -252,9 +454,82 @@ LiveKit Cloud의 시뮬레이터                      우리 에이전트 (워�
 
 읽을 점이 세 가지입니다.
 
-- **2회차에 점수가 내려갔습니다.** 고친 것이 문제를 풀지 못했다는 신호를 점수가 바로 보여 줬습니다. 고치면 점수가 오를 것이라는 가정을 시험으로 확인하는 것이 시뮬레이션의 쓸모입니다.
+- **2회차에 점수가 내려갔습니다.** 고친 것이 문제를 풀지 못했다는 신호를 점수가 바로 보여 줬습니다. 고치면 점수가 오를 것이라는 가정을 시험으로 확인하는 것이 시뮬레이션의 쓸모입니다. (2026-11-06 갱신) 다만 4/6에서 3/6으로 내려간 것 자체는 표본 6개에서 우연으로도 흔히 나는 차이입니다. 진짜 통과율이 4/6 그대로여도 다음 회차가 3/6 이하일 확률이 32%입니다([lab/14-pass-rate.mjs](lab/14-pass-rate.mjs) 2번). "고친 것이 문제를 풀지 못했다"는 판단의 근거는 점수가 아니라 실패한 시나리오의 판정 이유(위 표의 "원인과 조치" 칸)였어야 하고, 실제로도 그 이유를 읽어 원인을 가렸습니다. 점수는 표본이 충분히 클 때만 신호가 됩니다.
 - **실패 원인이 에이전트가 아닌 경우가 많았습니다.** 1회차는 시험 도구의 타이밍, 3회차의 해결 일부는 시나리오 수정이었습니다. 실패를 보면 지시문부터 고치고 싶어지지만, 먼저 "무엇이 틀렸나"를 가려야 합니다.
 - **4회차가 회귀 테스트입니다.** 기능을 여러 개 넣은 뒤 같은 시나리오를 다시 돌려 기존 동작이 깨지지 않았는지 봤습니다. 다만 [5-poc-results.md](../5-poc-results.md)도 적었듯 각 회차는 **한 번씩** 돌린 결과라, 파일럿 전에는 시나리오마다 여러 번(`--samples 3`) 돌려 안정성을 봐야 합니다.
+
+#### 깊이 보기: 통과율의 통계 — 6/6은 무엇을 말해 주나 (2026-11-06 추가)
+
+LLM 셋(가상 고객·에이전트·판정)이 얽힌 시나리오는 같은 코드에서도 통과하기도, 실패하기도 합니다. 그러면 시나리오 하나의 상태는 "통과/실패"가 아니라 **통과율 p**(실패율 q = 1 − p)라는 숫자이고, 실행 결과는 그 숫자에서 뽑은 표본입니다. 아래 계산은 모두 "실행끼리 독립이고 p가 일정하다"는 가정 위에 있습니다. 같은 날 같은 모델로 돌리면 대략 맞고, 모델이나 판정 LLM이 바뀌면 다른 p가 됩니다. 계산은 [lab/14-pass-rate.mjs](lab/14-pass-rate.mjs)로 했고, 시드 고정 무작위 시험 20만 번으로 다시 확인했습니다(예: 0.95^6 계산 73.51%, 시험 73.52%, 실측).
+
+**모두 통과했을 때의 상한.** 실패율이 q인 시나리오가 n번 모두 통과할 확률은 (1 − q)^n입니다. 이 값이 5%가 되는 q를 "실패율의 95% 상한"이라고 합니다. 실패율이 그보다 큰 시나리오가 n번 모두 통과할 확률은 5% 미만이므로, 관측과 맞는 가장 나쁜 값으로 읽습니다.
+
+```text
+(1 − q)^n = 0.05  →  q = 1 − 0.05^(1/n)
+n = 6:  0.05^(1/6) = e^(ln 0.05 / 6) = e^(−2.996 / 6) = e^(−0.499) ≈ 0.607  →  q ≈ 39.3%
+3의 규칙:  ln 0.05 ≈ −3 이고, q가 작으면 ln(1 − q) ≈ −q  →  n·q ≈ 3  →  q ≈ 3/n  (n = 6이면 50%)
+```
+
+| n번 모두 통과 | 1 | 3 | 6 | 12 | 18 | 30 | 60 | 100 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 정확한 95% 상한 1 − 0.05^(1/n) | 95.0% | 63.2% | 39.3% | 22.1% | 15.3% | 9.5% | 4.9% | 3.0% |
+| 3의 규칙 3/n | (100% 이상) | 100% | 50.0% | 25.0% | 16.7% | 10.0% | 5.0% | 3.0% |
+
+- 3의 규칙은 "q가 작다"는 근사를 쓰므로 n이 작을 때 크게 잡습니다(6번이면 50% 대 39%). n이 30을 넘으면 거의 같습니다.
+- 위 값은 한쪽(상한만) 95%입니다. 양쪽 95% 구간의 위 끝은 1 − 0.025^(1/n)이라 조금 더 큽니다(6번이면 45.9%).
+- 실패가 섞이면 같은 원리를 이항분포로 풉니다(Clopper–Pearson 방식, 실습 2번). 5/6 통과면 상한 58.2%, 17/18이면 23.8%, 29/30이면 14.9%입니다.
+
+**이 레포의 "6/6"에 대 보기.** 위 기록의 3·4회차 6/6은 **서로 다른 시나리오 6개를 한 번씩** 돌린 것입니다. 그래서 읽는 법이 둘입니다.
+
+- 시나리오 하나하나로 보면 각각 1번 통과입니다. n = 1의 상한은 95%입니다. 실패율이 90%인 시나리오도 열 번에 한 번은 통과하므로, 한 번의 통과로는 "대부분 실패하는 상태"조차 배제하지 못합니다.
+- 여섯의 실패율이 같다고 치고 묶으면 n = 6이고 상한은 39%입니다. 3·4회차를 합쳐 12/12로 봐도 22%입니다(두 회차의 코드가 달라 묶는 것부터 느슨한 가정입니다).
+- 어느 쪽이든 "6/6이니 안정적"이라고 하기에는 표본이 너무 작습니다. 본문의 "한 번 통과는 증거가 약하다"를 숫자로 적으면 이렇습니다.
+
+**묶음 전체가 초록일 확률.** 반대쪽 함정도 있습니다. 시나리오마다 통과율이 95%로 꽤 좋아도 6개가 한 번에 모두 통과할 확률은 0.95^6 ≈ 73.5%입니다(0.95² = 0.9025, 0.9025³ ≈ 0.735). 네 번에 한 번은 **아무것도 안 바뀌었는데** 빨간불이 켜집니다. 시나리오가 30개면 0.95^30 ≈ 21%까지 내려갑니다.
+
+`lk agent simulate`의 `--samples`와 `--pass-rate`가 이 문제를 다루는 장치입니다. CLI 도움말(2.19.3)에 따르면 `--samples K`는 시나리오마다 K번 돌려 pass@k(한 번이라도 통과)와 pass^k(모두 통과)를 보고하고, LiveKit Cloud는 K로 **1이나 3만** 받습니다. `--pass-rate`(기본 0.75)는 시나리오가 통과하려면 표본 중 몇 할이 통과해야 하는지이고, 도움말의 예대로 "3개 중 0.75는 2개"로 반올림합니다(실습 3번).
+
+| 시나리오마다 통과율 p | 한 번씩, 6개 모두 통과 | `--samples 3`, 3번 모두(pass^3), 6개 모두 | `--samples 3`, 3번 중 2번(`--pass-rate 0.75`), 6개 모두 |
+| --- | --- | --- | --- |
+| 0.99 | 94.1% | 83.5% | 99.8% |
+| 0.95 | 73.5% | 39.7% | 95.7% |
+| 0.90 | 53.1% | 15.0% | 84.3% |
+| 0.80 | 26.2% | 1.8% | 51.7% |
+
+"3번 중 2번"은 흔들림을 흡수해 줍니다(p = 0.95인 시나리오 하나는 0.95³ + 3 × 0.95² × 0.05 ≈ 99.3%로 통과). 대가는 아래의 탐지력입니다.
+
+**나빠진 것을 잡으려면 몇 번 돌려야 하나.** 지시문을 고쳐 어떤 시나리오의 실패율이 q로 올랐다고 합시다. n번 돌려 한 번이라도 실패를 볼 확률은 1 − (1 − q)^n이므로, 목표 확률을 넘는 최소 n은 ⌈ln(1 − 목표) / ln(1 − q)⌉입니다(실습 4번).
+
+| 나빠진 뒤 실패율 q | 80%로 잡기 | 95%로 잡기 | 99%로 잡기 | `--samples 3` 한 번으로 잡을 확률: 한 번이라도 실패 / 2번 이상 실패(`--pass-rate 0.75`로 시나리오 실패) |
+| --- | --- | --- | --- | --- |
+| 50% | 3번 | 5번 | 7번 | 87.5% / 50.0% |
+| 30% | 5번 | 9번 | 13번 | 65.7% / 21.6% |
+| 20% | 8번 | 14번 | 21번 | 48.8% / 10.4% |
+| 10% | 16번 | 29번 | 44번 | 27.1% / 2.8% |
+| 5% | 32번 | 59번 | 90번 | 14.3% / 0.7% |
+
+- 95%로 잡는 횟수는 3의 규칙과 같은 식에서 나옵니다(q = 5%면 약 3 / 0.05 = 60번).
+- 기본값(`--samples 3`, `--pass-rate 0.75`)으로 한 번 돌리면, 실패율이 30%로 나빠진 시나리오도 **78%의 확률로 통과**합니다(잡을 확률 21.6%). "회귀 없음"을 확인하는 용도로는 약합니다.
+
+**평소에도 흔들리는 시나리오: 거짓 경보와 놓침.** 실제로는 고치기 전에도 실패율이 0이 아닙니다. 가상 고객이 대본을 벗어나거나 판정 LLM이 틀리기도 하기 때문입니다(본문의 "에이전트가 틀렸나, 판정이 틀렸나, 시나리오가 모호했나"). 평소 5%, 나빠지면 30%라고 놓고 "n번 중 c번 넘게 실패하면 경보"를 따져 보면 이렇습니다(실습 5번).
+
+| n | c | 거짓 경보 (평소 5%인데 경보) | 잡을 확률 (30%로 나빠짐) |
+| --- | --- | --- | --- |
+| 3 | 0 | 14.3% | 65.7% |
+| 3 | 1 | 0.7% | 21.6% |
+| 6 | 1 | 3.3% | 58.0% |
+| 10 | 1 | 8.6% | 85.1% |
+| 20 | 2 | 7.5% | 96.5% |
+| 30 | 4 | 1.6% | 97.0% |
+
+경보 기준(c)을 낮추면 거짓 경보가, 높이면 놓침이 늘어납니다. 둘 다 줄이는 방법은 n을 늘리는 것뿐입니다. 거짓 경보가 잦으면 사람들이 빨간불에 익숙해져 진짜 실패도 무시하게 됩니다(14-2절 변경 감지 테스트와 같은 문제).
+
+**이 레포에 적용하면 (제안).**
+
+- 지시문을 고친 PR: 바꾼 규칙과 맞닿은 시나리오만 골라 `--samples 3`으로 몇 번(예: 3~4번 실행, 시나리오마다 9~12회) 돌리고, 시나리오별로 실패 수를 셉니다. 기록도 "6/6" 대신 "시나리오별 12번 중 실패 몇 번"으로 적습니다.
+- 파일럿 전 기준선: 전체 시나리오를 시나리오마다 20~30번 돌려 평소 실패율을 재 둡니다. 이 값이 있어야 위 표의 거짓 경보를 계산할 수 있습니다.
+- 모델 비교(5-poc-results의 Haiku 5.5 대 GPT-6 Luna): 두 통과율을 가르려면 한쪽마다 90% 대 80%(10%p 차이)면 약 199번, 90% 대 70%면 약 62번의 실행이 필요합니다(양쪽 유의수준 5%, 검정력 80%, 두 비율 비교의 정규 근사, 실습 7번). 시나리오를 묶어 센 횟수이고, 시나리오마다 따로 가르려면 각각 그만큼 필요합니다.
+- 비용은 실행 횟수에 비례하므로(실행마다 LLM 셋 × 턴 수), 위 표는 "돈을 얼마나 쓰면 얼마나 믿을 수 있나"의 표로 읽습니다.
 
 ### 시나리오 시뮬레이션이 못 보는 것
 
@@ -271,9 +546,104 @@ LiveKit Agents에는 방 없이 에이전트를 돌리는 테스트 도구가 �
 | `session.run({ userInput })` | 방 없이 사용자 입력 하나를 넣고 답을 생성, 일어난 사건(메시지, 도구 호출·결과, 핸드오프)을 모아 돌려줌 |
 | `result.expect.nextEvent().isMessage(…)` 등 | 사건 순서대로 검증. `isFunctionCall`, `noMoreEvents` 등 |
 | `judge(llm, { intent })` | 답이 의도에 맞는지 LLM으로 판정 (엄격한 평가 프롬프트, 도구 호출로 결과 강제) |
-| `FakeLLM`, `withMockTools` | LLM이나 도구를 가짜로 바꿔 결정적으로 테스트 |
+| `FakeLLM`, `withMockTools` | LLM이나 도구를 가짜로 바꿔 결정적으로 테스트. (2026-11-06 갱신) `withMockTools`는 에이전트 **생성자**로 찾으므로, `Agent.create`로 만든 에이전트에는 `voice.Agent`가 아니라 그 인스턴스의 `constructor`를 넘겨야 함(아래) |
 
 도구를 붙이면 "가격을 물으면 `schedule_callback` 도구를 부른다" 같은 **도구 호출 테스트**를 이 방식으로 쓰기 좋습니다. 진짜 LLM으로 돌리면 확률적이지만, 시뮬레이션보다 훨씬 빠르게 반복할 수 있습니다.
+
+### 실제로 돌려 보기: FakeLLM으로 키 없이 한 턴 (2026-11-06 추가)
+
+[lab/14-sdk-session.mjs](lab/14-sdk-session.mjs)는 이 레포의 실제 에이전트([src/agent.ts](../../src/agent.ts)의 `createAgent`: 지시문, 맞장구를 떼는 `llmNode`, `end_call` 도구)를 SDK의 `voice.testing.FakeLLM`과 `AgentSession`에 얹어 `session.run({ userInput })`으로 한 턴씩 돌립니다. 방도, STT·TTS·VAD도, API 키도 없습니다. FakeLLM은 마지막 사용자 말과 **글자까지 같은** 항목을 찾아 그 답을 3글자씩 잘라 흘립니다(`agents/voice/testing/fake_llm.ts` 89~96·119~148). 결과는 이렇습니다(실측).
+
+```text
+== 1. llmNode(맞장구 제거)가 세션 안에서 ==
+   사용자: "네, 괜찮아요"  (7.0ms)
+     message(assistant) "예산은 어느 정도 생각하세요?"       ← FakeLLM의 답은 "네, 예산은 어느 정도 생각하세요?"
+
+== 3. 겹친 맞장구 (17-2 #43) ==
+   FakeLLM이 흘리는 조각: ["알겠습","니다."," 감사","합니다",". 예","산은요","?"] → 누적 12자에서 판단 (k=12)
+     message(assistant) "알겠습니다. 감사합니다. 예산은요?"   ← 기대는 "예산은요?"
+
+== 2. 마지막 인사 + end_call ==
+   agent.constructor.name = AgentV2, voice.Agent와 같은가? false
+   withMockTools(voice.Agent, …): mock 불린 횟수 0 → 진짜 end_call이 돎 (도구 결과 "")
+     message(assistant) "네, 감사합니다."
+     function_call end_call({})
+     function_call_output "\"통화 종료 (가짜)\""
+   withMockTools(agent.constructor, …): mock 불린 횟수 1
+```
+
+- **맞장구 제거가 세션 안에서 돕니다.** `Agent.create`에 넘긴 `llmNode` 훅이 SDK의 `toStream`에 감싸여(12-4절) 실제 세션 경로로 불리고, 대화 기록에 뗀 답이 남습니다. 단위 테스트(`ack.test.ts`)가 함수만 봤다면, 이 시험은 "세션이 정말 그 함수를 쓰는가"까지 봅니다. 한 턴은 2~7ms입니다.
+- **17-2 #43이 세션에서도 재현됩니다.** 3글자 조각이면 누적 길이가 3, 6, 9, 12로 커지므로 12자에서 판단하는 `withoutLeadingAck`는 "알겠습니다. 감사합니다"만 보고 "다 지우면 원문 유지"로 넘어갑니다(12-7절 깊이 보기의 k = 12). 코드를 고친 뒤에는 이 한 턴이 그대로 회귀 테스트가 됩니다. FakeLLM의 고정된 조각 나누기가 12장의 "분할 하나를 손으로 고른 테스트"와 같은 역할을 하는 셈입니다.
+- **도구 호출 경로도 돕니다.** "네, 감사합니다."(9자)는 12자가 모이기 전에 도구 호출 청크가 오므로, `withoutLeadingAck`가 보류분을 먼저 내보냅니다(12-6절 설계 포인트). 맞장구를 다 떼면 빈 글이라 원문이 남았습니다. `result.expect`로 메시지 → `end_call` 호출 → 도구 결과의 순서를 단언했습니다.
+
+**함정: `withMockTools`에 무엇을 넘기나 (코드로 확인).** SDK는 가짜 도구를 "지금 에이전트의 생성자"로 찾습니다(`agents/voice/testing/run_result.ts` 1050~1058의 `agent.constructor === agentConstructor`). SDK 주석의 예는 `class DriveThruAgent extends Agent`처럼 직접 만든 클래스를 넘기는데(같은 파일 1073~1084), 이 레포는 `Agent.create`를 쓰고 이 함수는 **부를 때마다 익명 하위 클래스 `AgentV2`를 새로 만듭니다**(`agents/voice/agent_v2.ts` 129~133). 그래서 `withMockTools(voice.Agent, …)`는 아무 오류 없이 무시되고 진짜 `end_call`이 돕니다. 진짜 `end_call`은 답이 끝나면 `session.shutdown()`을 부릅니다(`agents/beta/tools/end_call.ts` 157). 메시지 → 호출 → 결과의 **순서만** 단언하면 이 차이를 알아채지 못하고, 도구 결과가 가짜가 돌려준 값인지까지 봐야 드러납니다. 만든 인스턴스의 `agent.constructor`를 넘깁니다.
+
+**`session.run`이 거치지 않는 것 (코드로 확인).**
+
+- `onUserTurnCompleted` 훅(오인식 보정 `correctTranscript`, 즉시 반응 `say('네네.')`)은 돌지 않습니다. 이 훅은 STT 턴 확정 경로(`onEndOfTurn` → `userTurnCompleted` → 훅, `agents/voice/agent_activity.ts` 2702·2779·3430)에서만 불리고, `session.run`은 `generateReply({ userInput })`로 바로 답을 만듭니다(`agents/voice/agent_session.ts` 1509~1547). 실습 4번에서 "F two 울트라 얼마예요"가 대화 기록에 고쳐지지 않은 채("F2"가 아님) 남았습니다.
+- 세션에 TTS가 없으므로 발음 변환(`ttsTextTransforms`의 `pronunciationTransform`)도 돌지 않습니다.
+- 그래서 이 도구로 시험하는 것은 "지시문 + LLM 노드 + 도구"이고, 훅과 TTS 쪽은 지금처럼 단위 테스트가 맡습니다.
+
+**vitest로 옮기면.** 아래 테스트를 레포 밖 임시 파일에 두고(가져오는 경로만 절대 경로로 바꿔) vitest 4.1.12로 돌려 두 개 모두 통과했고, 레포의 `tsconfig.json` 설정으로 타입 검사와 eslint도 통과했습니다(실측, 이 레포에는 아직 없음). `initializeLogger`를 빼면 세션이 `logger not initialized. did you forget to run initializeLogger()?`로 시작하지 못했습니다(실측). 두 테스트에 1초 남짓 걸리는데, 대부분은 세션을 닫는 시간(한 번에 약 0.5초)입니다.
+
+```ts
+// src/agent.test.ts (예시)
+import { initializeLogger, voice } from '@livekit/agents';
+import { afterEach, beforeEach, expect, it } from 'vitest';
+import { createAgent } from './agent.ts';
+import { SAMPLE_CALL } from './call-context.ts';
+
+initializeLogger({ pretty: false, level: 'error' }); // 세션은 로거가 없으면 시작하지 못함
+const { FakeLLM, withMockTools } = voice.testing;
+const llm = new FakeLLM([
+  { input: '네, 괜찮아요', content: '네, 예산은 어느 정도 생각하세요?' },
+  {
+    input: '그냥 전화하지 마세요',
+    content: '네, 감사합니다.',
+    toolCalls: [{ name: 'end_call', args: {} }],
+  },
+]);
+let session: voice.AgentSession;
+let agent: voice.Agent;
+
+beforeEach(async () => {
+  session = new voice.AgentSession({ llm });
+  agent = createAgent({ call: SAMPLE_CALL, llm });
+  await session.start({ agent });
+});
+afterEach(async () => {
+  await session.close();
+});
+
+it('본 답 첫머리의 맞장구를 뗀다', async () => {
+  const result = session.run({ userInput: '네, 괜찮아요' });
+  await result.wait();
+  const msg = result.expect.nextEvent().isMessage({ role: 'assistant' }).event();
+  expect(msg.item.textContent).toBe('예산은 어느 정도 생각하세요?');
+  result.expect.noMoreEvents();
+});
+
+it('전화하지 말라고 하면 인사하고 end_call을 부른다', async () => {
+  // Agent.create는 부를 때마다 하위 클래스를 새로 만들므로 voice.Agent가 아니라 이 인스턴스의 생성자를 넘깁니다.
+  const mock = withMockTools(agent.constructor as Parameters<typeof withMockTools>[0], {
+    end_call: () => 'ok',
+  });
+  try {
+    const result = session.run({ userInput: '그냥 전화하지 마세요' });
+    await result.wait();
+    result.expect.nextEvent().isMessage({ role: 'assistant' });
+    result.expect.nextEvent().isFunctionCall({ name: 'end_call' });
+    const out = result.expect.nextEvent().isFunctionCallOutput().event();
+    expect(out.item.output).toContain('ok'); // 가짜가 정말 쓰였는지
+    result.expect.noMoreEvents();
+  } finally {
+    mock[Symbol.dispose]();
+  }
+});
+```
+
+- SDK 주석의 예는 `using _mock = withMockTools(…)`(블록을 나갈 때 자동으로 `[Symbol.dispose]()`)입니다. Node 24와 이 레포의 tsc는 `using`을 받아들이지만, 이 레포의 eslint 설정(`@typescript-eslint/no-unused-vars`)이 쓰지 않는 변수 `_mock`을 오류로 잡아 `try`/`finally`로 썼습니다(실측).
+- 여기에 진짜 LLM과 `judge(llm, { intent })`를 쓰면 "가격을 물으면 금액을 말하지 않는다" 같은 의미 판정도 할 수 있지만, 그 순간 키·비용·확률성이 들어오므로 14-5절의 통과율 이야기가 그대로 적용됩니다.
 
 ---
 
@@ -290,6 +660,34 @@ LiveKit Agents에는 방 없이 에이전트를 돌리는 테스트 도구가 �
 | 시나리오 시뮬레이션 | 없음 (비용 때문에 뺌, [4-setup-checklist.md 1-1](../4-setup-checklist.md#1-1-레포-구조)) |
 
 처음에는 단위 테스트가 CI에 없었습니다. API 키도 비용도 필요 없는 테스트라 마지막 단계로 추가했고, 이제 맞장구 제거·발음·보정·캐시 접두사 규칙이 깨지는 변경을 머지 전에 잡습니다. 가짜 서버 계약 테스트(14-3절)도 키 없이 로컬 포트만 쓰므로 CI에서 그대로 돕니다. [AGENTS.md](../../AGENTS.md)는 시나리오도 `main` 머지마다 돌리라고 권하므로, 비용을 감안해 "지시문이 바뀐 PR에서만" 같은 조건으로 도입하는 방법이 남은 과제입니다.
+
+### CI가 못 잡는 것 (2026-11-06 추가)
+
+위 표의 ●만 보면 빈틈이 없어 보이지만, 각 단계가 **무엇을** 검사하는지 따라가 보면 비어 있는 곳이 있습니다.
+
+**① 테스트 파일은 어디서도 타입 검사를 받지 않습니다 (설정으로 확인 + 실측).**
+
+- `pnpm typecheck`(`tsc --noEmit`)는 [tsconfig.json](../../tsconfig.json)을 따르는데, `exclude`에 `**/*.test.ts`가 있습니다. `tsc --listFilesOnly`로 보면 검사 대상에 테스트 파일이 0개입니다(실측). 레포에는 왜 뺐는지 적혀 있지 않습니다.
+- vitest는 TypeScript의 타입을 **지우기만** 하고 실행합니다. vitest 4.1.12가 쓰는 Vite 8은 TS 변환을 `vite:oxc` 플러그인(`transformWithOxc`)이 맡습니다(`node_modules/.pnpm/vite@8.3.5_…/node_modules/vite/dist/node/chunks/node.js` 7593·7641~7665, 코드로 확인). vitest의 `--typecheck` 모드는 켜져 있지 않습니다(`package.json`의 `test` 스크립트는 `vitest --run`).
+- `pnpm lint`는 테스트 파일도 보지만, 이 레포 설정은 타입 정보가 필요 없는 규칙(`tseslint.configs.recommended`)뿐입니다(12-2절 깊이 보기).
+- 실험: 레포 밖 임시 테스트 파일에서 `new VoiceAnthropicLLM({ …, effort: 'lowest', … })`처럼 없는 값을 넣었더니 vitest는 **통과**했고, 같은 파일을 레포 설정을 상속한 임시 tsconfig로 검사하자 `error TS2322: Type '"lowest"' is not assignable to type 'Effort'.`가 나왔습니다(실측). 지금 있는 테스트 파일 8개를 같은 방법으로 검사하면 오류는 0개였습니다(실측). 지금은 깨끗하지만 지켜 주는 장치가 없습니다.
+- 막는 방법(제안): `tsconfig.json`을 상속하고 `exclude`만 비운 테스트용 설정을 두고, CI에서 `tsc -p`를 한 번 더 돌립니다.
+
+**② 이미지 빌드는 CI에서 돌지 않습니다 (워크플로로 확인).**
+
+- [tests.yml](../../.github/workflows/tests.yml)에는 `docker build` 단계가 없습니다. 그래서 15-4절의 "설치 단계에 워크스페이스 설정이 없던 문제" 같은 Dockerfile 회귀는 CI에서 드러나지 않습니다. CI는 레포를 통째로 체크아웃한 뒤 설치하므로 `pnpm-workspace.yaml`·`patches/`가 늘 그 자리에 있고, Dockerfile이 그 파일들을 복사하는지는 보지 않기 때문입니다.
+- LiveKit Cloud는 배포할 때 이 Dockerfile로 원격 빌드하므로(15-5절), 지금 구조에서는 **배포하는 순간** 처음 드러납니다. 15-4절도 "실제 `docker build`는 아직 돌려 보지 않았습니다"라고 적었습니다.
+- 막는 방법(제안): 이미지를 올리지 않는 `docker build .` 단계 하나를 더합니다. GitHub의 우분투 실행기에는 Docker가 들어 있습니다(GitHub 문서 기준, 빌드 시간은 재지 않음).
+
+**③ (지켜 주는 쪽) CI의 `pnpm install`은 lockfile을 고치지 않습니다.**
+
+- 워크플로는 `pnpm install`만 쓰고 `--frozen-lockfile`을 적지 않았지만, pnpm이 CI에서는 그것을 기본으로 켭니다. pnpm 12.16.1의 `pnpm help install`은 `--frozen-lockfile`을 "This setting is enabled by default in CI when a lockfile is present"라고 설명합니다. GitHub Actions는 모든 작업에 `CI=true` 환경변수를 넣습니다(GitHub 문서 기준). pnpm 12는 Rust로 만든 실행 파일이라 CI를 알아보는 코드 자체는 확인하지 않았습니다.
+- 실험: 레포 밖 임시 폴더에 `package.json`·`pnpm-lock.yaml`·`pnpm-workspace.yaml`·`.npmrc`·`patches/`를 복사하고 `package.json`의 zod 범위만 바꿨습니다. `CI=true pnpm install --offline`은 `ERR_PNPM_OUTDATED_LOCKFILE`(`specifiers in the lockfile don't match specifiers in package.json`)로 종료 코드 1이었고, `CI` 없이(`--lockfile-only --offline`) 돌리면 lockfile을 새로 풀려고 레지스트리 메타데이터를 찾다가 `ERR_PNPM_NO_OFFLINE_META`로 멈췄습니다(실측). 곧 `package.json`만 고치고 lockfile을 커밋하지 않은 PR은 CI의 설치 단계에서 실패합니다. Dockerfile은 같은 검사를 `--frozen-lockfile`로 명시합니다(15-4절).
+
+**그 밖에.**
+
+- `pnpm lint`의 대상은 `"**/*.{ts,js}"`라 학습서 실습(`.mjs`)은 CI에서 린트되지 않고, `.prettierignore`에 `docs/`가 있어 `format:check`도 문서와 실습을 보지 않습니다. 이 장의 실습은 손으로 `pnpm exec eslint docs/1-study/lab/14-*.mjs`를 돌려 확인했습니다.
+- 시나리오 시뮬레이션은 위 표대로 돌지 않고, 14-3절 깊이 보기의 "알려진 버그" 테스트(`it.fails`)나 14-6절의 세션 테스트도 아직 없습니다.
 
 ---
 
@@ -316,9 +714,21 @@ LiveKit Agents에는 방 없이 에이전트를 돌리는 테스트 도구가 �
 | --- | --- | --- | --- |
 | 단위 | vitest | 순수 함수 규칙 | 결정적 |
 | 계약 | 로컬 가짜 서버 | 외부 API로 나가는 바이트 | 결정적 |
-| 대화 | 디버거, `session.run` | LLM 답, 도구 호출 | 확률적 |
+| 대화 | 디버거, `session.run` | LLM 답, 도구 호출 | 확률적 (2026-11-06 갱신: `FakeLLM`을 쓰면 결정적, 14-6절) |
 | 시나리오 | `lk agent simulate` | 대화 전체 행동 | 확률적 → 반복 실행 |
 | 음성 | console, Agent Console | 턴 테이킹, 발음, 지연 | 사람 판단 |
+
+(2026-11-06 추가) 이번 판에서 더한 것:
+
+| 주제 | 핵심 | 이 프로젝트 |
+| --- | --- | --- |
+| 가짜 시계 | 시간 함수만 가짜, Promise 차례는 진짜. `Async` 판은 타이머마다 진짜 `setImmediate`로 양보 | call-guard 첫 테스트는 동기 판이면 실패 |
+| 가짜 서버 테스트의 한계 | 손으로 쓴 SSE라 공급사 형식 변경을 못 잡음. 이름은 계약 테스트보다 좁은 통합 테스트 | 골든 파일 녹화 제안 |
+| 가짜 서버 테스트의 확장 | 쓰는 시각·취소·바이트 경계를 시험에 넣음 | #36(첫 글 지연)·#41(취소 미전파)을 잡는 테스트, 본문 64KiB부터 `raw += chunk` 깨짐(#45) |
+| 테스트 더블 | dummy·stub·spy·mock·fake. 이름보다 대신하는 것과 검증 방식 | `vi.fn`은 spy, `fakeSession`은 fake, FakeLLM은 stub에 가까움 |
+| 통과율의 통계 | n번 모두 통과해도 95% 상한 1 − 0.05^(1/n), 묶음이 모두 초록일 확률 p^m | 6/6 → 상한 39%, `--samples`는 1이나 3 |
+| SDK 세션 테스트 | `FakeLLM` + `session.run`으로 키 없이 한 턴 수 ms | 맞장구 제거가 세션에서 돎, #43 재현. `withMockTools`는 `agent.constructor`로 |
+| CI의 빈틈 | 테스트 파일 타입 검사 없음, 이미지 빌드 없음 | lockfile 검사는 CI 기본값으로 켜짐 |
 
 ---
 
@@ -329,6 +739,10 @@ LiveKit Agents에는 방 없이 에이전트를 돌리는 테스트 도구가 �
 3. 텍스트 시뮬레이션이 통과했는데 실제 통화에서 제품명을 틀리게 알아들었습니다. 시뮬레이션이 이를 못 잡은 이유는?
 4. 시나리오가 한 번 통과했다고 지시문 수정이 안전하다고 할 수 없는 이유는?
 5. 단위 테스트를 CI에 넣는 데 API 키가 필요 없는 이유는? (계약 테스트 포함)
+6. (2026-11-06 추가, 손 계산) ① 시나리오 하나를 6번 돌려 6번 모두 통과했습니다. 실패율의 95% 상한을 정확한 식과 3의 규칙으로 각각 구하세요(0.05^(1/6) ≈ 0.607). ② 시나리오 6개가 각각 95%로 통과한다면, 한 번씩 돌렸을 때 6개가 모두 통과할 확률은 얼마입니까?(0.95² = 0.9025) ③ 그 시나리오 하나를 `--samples 3`, `--pass-rate 0.75`(3번 중 2번)로 돌리면 통과할 확률은 얼마입니까?
+7. (2026-11-06 추가) `call-guard.test.ts` 첫 테스트의 `await vi.advanceTimersByTimeAsync(10_000)`를 `vi.advanceTimersByTime(10_000)`으로 바꾸면 실패합니다. ① `finishPlayout()` 직후에 무응답 타이머가 아직 없는 이유, ② 동기 판이 그사이에 `.then`을 돌려 주지 못하는 이유, ③ `Async` 판은 돌려 줄 수 있는 이유를 쓰세요.
+8. (2026-11-06 추가) `anthropic.test.ts`의 가짜 서버를 `res.end(RESPONSE)` 대신 SSE 이벤트를 200ms 간격으로 하나씩 `res.write`하게 바꾸고 첫 글 조각까지의 시간을 쟀더니, 200ms에 쓴 첫 글이 약 400ms에 나왔습니다. ① 왜 그렇습니까? ② 이 테스트가 손으로 쓴 SSE를 쓰는 한 여전히 잡지 못하는 변화는 무엇이고, 어떻게 보완합니까?
+9. (2026-11-06 추가) SDK 테스트 도구로 이 레포의 에이전트를 돌리는 테스트를 썼습니다. ① `withMockTools(voice.Agent, { end_call: … })`를 걸었는데 진짜 `end_call`이 돌았습니다. 왜입니까? ② "F two 울트라 얼마예요"를 넣었는데 대화 기록에 "F2 울트라"로 고쳐지지 않았습니다. 왜입니까?
 
 <details>
 <summary>답 보기</summary>
@@ -338,5 +752,9 @@ LiveKit Agents에는 방 없이 에이전트를 돌리는 테스트 도구가 �
 3. 텍스트 모드는 STT를 거치지 않아 입력이 이미 정확한 글이기 때문입니다.
 4. 가상 고객·에이전트·판정이 모두 LLM이라 결과가 확률적입니다. 여러 번 돌려 통과율을 봐야 합니다.
 5. 단위 테스트는 순수 함수만 다루고, 계약 테스트는 로컬 가짜 서버에 가짜 키(`'test'`)로 요청하기 때문입니다. 외부 API를 부르지 않습니다.
+6. ① 정확한 식: 1 − 0.05^(1/6) ≈ 1 − 0.607 = 0.393, 약 39%. 3의 규칙: 3/6 = 50%. 3의 규칙은 n이 작을 때 크게 잡습니다. ② 0.95^6 = 0.9025³. 0.9025 × 0.9025 ≈ 0.8145, 여기에 0.9025를 곱하면 약 0.735, 곧 73.5%입니다. 아무것도 안 바뀌어도 네 번에 한 번은 빨간불이 켜집니다. ③ 3번 모두 통과 0.95³ ≈ 0.857, 정확히 2번 통과 3 × 0.95² × 0.05 = 3 × 0.9025 × 0.05 ≈ 0.135. 더하면 약 0.993, 곧 99.3%입니다(14-5절 깊이 보기).
+7. ① `guardCall`은 `waitForPlayout().then(…)` 안에서 무응답 타이머를 겁니다. `finishPlayout()`은 Promise를 풀기만 하고, `.then` 콜백은 마이크로태스크 큐에 들어가 지금 돌고 있는 테스트 코드가 끝나야 돕니다. ② 동기 판(`doTick(ms, false)`)은 같은 호출 안에서 범위에 든 가짜 타이머만 실행합니다. 중간에 부르는 `runJobs`가 비우는 것은 fake-timers가 가로챈 `nextTick`·`queueMicrotask` 목록뿐인데, vitest 기본값은 그 둘을 가로채지 않고, V8의 마이크로태스크 큐는 JavaScript 코드로 비울 수 없습니다. 그래서 범위 안에 타이머가 없다고 보고 시각만 +10초로 옮깁니다. 그 뒤에 `.then`이 돌면 타이머는 +20초에 걸립니다. ③ `Async` 판은 시작하기 전과 타이머를 하나 실행할 때마다, 가짜를 설치하기 전에 잡아 둔 진짜 `setImmediate`로 양보합니다(`vitest/` 2088·2541~2552·2449~2454). 테스트가 그 Promise를 `await`하는 사이 마이크로태스크가 돌아 타이머가 +10초에 생기고, 이어서 시작한 `doTick`이 그 타이머를 범위 안에서 실행합니다(14-3절 깊이 보기).
+8. ① 플러그인이 쓰는 SDK 0.33.1의 SSE 분리기는 버퍼의 맨 끝 두 바이트를 보지 않아(`i < buffer.length - 2`, 17-2 #36), 받은 조각이 이벤트 끝 `\n\n`으로 정확히 끝나면 그 이벤트를 다음 바이트가 올 때까지 붙잡습니다. 다음 이벤트를 쓴 400ms에야 첫 글이 나옵니다. 이벤트 뒤에 SSE 주석 한 줄(`: k\n`)만 붙여도 약 208ms에 나오는 것이 그 확인입니다. ② Anthropic이 실제 응답 형식을 바꾸는 것입니다. 테스트 안의 형식은 그대로라 계속 통과합니다. 실제 응답을 한 번 녹화해 골든 파일로 쓰고, SDK·모델을 올릴 때나 정기적으로 다시 녹화해 이전 파일과의 차이를 봅니다(14-3절 깊이 보기).
+9. ① `withMockTools`는 `agent.constructor === 넘긴 생성자`로 가짜를 찾는데, `Agent.create`는 부를 때마다 익명 하위 클래스 `AgentV2`를 새로 만들어 생성자가 `voice.Agent`가 아닙니다. 오류 없이 무시되므로, 인스턴스의 `agent.constructor`를 넘기고 도구 결과가 가짜의 값인지도 단언합니다. ② 오인식 보정은 `onUserTurnCompleted` 훅에서 하는데, 이 훅은 STT 턴 확정 경로(`onEndOfTurn` → `userTurnCompleted`)에서만 불리고 `session.run`은 `generateReply`로 바로 답을 만들기 때문입니다(14-6절).
 
 </details>

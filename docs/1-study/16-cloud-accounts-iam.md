@@ -2,11 +2,12 @@
 
 (2026-11-05 추가)
 
-LLM을 Amazon Bedrock 도쿄로 옮겨 보려고(13-5절) 처음 AWS를 쓰면서, 호출 한 번이 통과하기까지 **서로 다른 이유의 거절을 여섯 번** 받았습니다. 판정 트리거를 처음 배포할 때는 GCP에서도 권한 문제로 한 번 실패했습니다(15-6절). 이 장은 그 거절들을 교재로 삼아 **클라우드가 "누가, 무엇을, 어디서"를 어떻게 판단하는지**를 층별로 정리합니다.
+LLM을 Amazon Bedrock 도쿄로 옮겨 보려고(13-5절) 처음 AWS를 쓰면서, 호출 한 번이 통과하기까지 **서로 다른 이유의 거절을 여섯 번** 받았습니다((2026-11-06 갱신) 그 뒤 #7까지 일곱 번이 됐습니다. 16-1절 표). 판정 트리거를 처음 배포할 때는 GCP에서도 권한 문제로 한 번 실패했습니다(15-6절). 이 장은 그 거절들을 교재로 삼아 **클라우드가 "누가, 무엇을, 어디서"를 어떻게 판단하는지**를 층별로 정리합니다.
 
 - 다루는 것: 인증과 인가, AWS 계정·조직·리전, 자격 증명의 종류(액세스 키·STS 임시 자격 증명·Bedrock API 키), SigV4 서명, SDK가 자격 증명을 찾는 순서, IAM 정책 평가와 SCP, Bedrock의 모델 사용 신청·추론 프로필·두 창구, GCP의 서비스 계정·서비스 에이전트, 권한 변경의 전파 지연, 운영에서 키를 다루는 법
 - 다루지 않는 것: Bedrock 클라이언트를 Anthropic 플러그인에 끼우는 코드(8-8절)와 Anthropic API와의 A/B 측정 결과(13-5절).
 - 이 레포는 공개 저장소라, 본문의 계정 ID·조직 ID·정책 ID는 `<작업 계정 ID>`처럼 가렸습니다. 계정 ID는 비밀번호가 아니지만 알려 줄 이유도 없습니다.
+- (2026-11-06 추가) "깊이 보기"에서는 서명·토큰·정책 평가·응답 프레임을 **실제 문자열과 바이트로** 열어 봅니다. 실습 스크립트 다섯 개([lab/16-sigv4.mjs](lab/16-sigv4.mjs), [lab/16-api-key-anatomy.mjs](lab/16-api-key-anatomy.mjs), [lab/16-credential-chain.mjs](lab/16-credential-chain.mjs), [lab/16-policy-eval.mjs](lab/16-policy-eval.mjs), [lab/16-eventstream.mjs](lab/16-eventstream.mjs))는 AWS 문서의 예시 키(`AKIDEXAMPLE` 등)와 127.0.0.1의 가짜 서버로 돌고, AWS·GCP를 부르지 않으며 `.env.local`을 읽지 않습니다. 예시의 계정 칸은 AWS 문서의 예시 값(`123456789012`, `111122223333`)입니다.
 
 ---
 
@@ -41,6 +42,12 @@ HTTP 상태 코드로는 보통 401이 인증 실패, 403이 "누군지는 알�
 - **한 번 호출이 통과하려면 모든 층을 통과해야 합니다.** 앞 층을 고치면 다음 층의 거절이 드러납니다. #4를 고치자 #5가 보였습니다. 그래서 "403이 났다, 키가 틀렸나?"처럼 한 층만 의심하면 오래 헤맵니다.
 - **거절 메시지는 네 가지를 알려 줍니다.** 누가(`arn:aws:sts::<작업 계정 ID>:assumed-role/AccountFullAccessRole/<세션 이름>`), 무엇을(`bedrock:CallWithBearerToken`), 무엇에 대해(`resource: *`), 왜(`explicit deny in a service control policy`). 이 넷을 읽으면 층이 보입니다.
 - **같은 문구라도 원인이 같다는 보장은 없습니다.** #5와 #7은 글자 하나 다르지 않은 403이었지만, #5는 양식을 내기 전이었고 #7은 양식이 처리된 뒤였습니다. 둘을 가른 것은 **조건을 하나만 바꾼 비교**입니다. 키·리전·창구를 그대로 두고 모델만 Haiku 4.5로 바꾸자 응답이 왔으므로, 막힌 것은 계정 전체가 아니라 그 모델 하나라는 결론이 나왔습니다.
+
+(2026-11-06 추가) **운영 로그에서 이 거절을 볼 때는 모양이 바뀝니다.** 위 표는 `curl`이나 SDK를 직접 불러 응답 본문을 그대로 본 결과입니다. 워커 안에서는 Anthropic 플러그인이 오류를 한 번 바꿔 싣는데, 플러그인은 `e instanceof Anthropic.APIError`로 오류를 가르고 이 `Anthropic`은 SDK 0.33입니다. Bedrock 클라이언트가 던지는 오류는 SDK 1.4의 클래스라 검사가 거짓이 되고, 오류는 "연결 오류"로 분류됩니다(`node_modules/@livekit/agents-plugin-anthropic/src/llm.ts` 457~475, 8-7절, 17-2 #37).
+
+- #5·#7 같은 403도 **재시도 가능한 연결 오류(`APIConnectionError`)** 가 되어 LiveKit이 세 번 더 보냅니다. 기다림 0.1 + 2 + 2초에 왕복 네 번이 붙어, 왕복을 0.3초로 잡으면 약 5.3초 뒤에야 그 턴이 실패합니다(8-7절 표의 계산).
+- 오류 객체의 **상태 코드 칸이 사라집니다.** 다만 메시지는 SDK 1.4 오류의 것을 그대로 옮기므로(같은 파일 472~474) `"403 anthropic.claude-haiku-5-5 is not available for this account."`처럼 앞머리에 숫자와 본문 문구가 남습니다(SDK 1.4에 가짜 403을 돌려준 실측). 이 절의 원칙대로 **숫자 칸이 아니라 문구를 읽어야** 층이 보입니다.
+- 네 번 보낼 때마다 서명을 새로 하고(16-3절 깊이 보기), 자격 증명을 STS에서 받는 방식이라면 그때마다 STS도 다시 부릅니다(16-4절 깊이 보기).
 
 ---
 
@@ -103,13 +110,66 @@ Bedrock API 키는 **베어러(bearer) 토큰**입니다. 이름 그대로 "가�
 - **단기 키**는 만든 신원(이번에는 콘솔의 역할 세션)의 권한을 그대로 이어받습니다. AWS가 공개한 토큰 생성 라이브러리(`aws-bedrock-token-generator`)를 보면, 단기 키는 **SigV4로 미리 서명한 URL을 문자열로 감싼 것**입니다. 서명에 리전이 들어가므로 키가 리전에 묶이고(#2), 서명에 만료 시각이 들어가므로 최대 12시간 뒤 쓸모가 없어집니다. 클라이언트에서 서명만으로 만들어지므로 **만드는 것 자체는 막을 수 없고, 쓰는 것만 막을 수 있습니다**(AWS 문서).
 - **장기 키**는 IAM 사용자에 딸린 서비스 전용 자격 증명입니다. 콘솔에서 만들면 그 키를 위한 IAM 사용자가 함께 생깁니다. AWS는 장기 키를 탐색용으로만 권합니다.
 
+#### 깊이 보기: 단기 API 키 한 개를 풀어 보기 (2026-11-06 추가)
+
+**만드는 코드.** AWS가 공개한 생성기(`aws-bedrock-token-generator-js`, GitHub `main`의 2025-07-24 커밋)의 `src/token.ts`는 핵심이 30줄 남짓입니다. 하는 일은 넷입니다(코드로 확인).
+
+1. `POST https://bedrock.amazonaws.com/?Action=CallWithBearerToken` 요청을 만듭니다. 머리글은 `host` 하나이고 본문은 없습니다. **호스트 이름에 리전이 없습니다.**
+2. 그 요청을 SigV4로 **미리 서명**(presign)합니다. 서비스 이름은 `bedrock`, 리전은 받은 값, 만료는 기본 43,200초(12시간)입니다. 미리 서명은 아래 SigV4와 같은 계산이지만, 범위·시각·서명을 머리글 대신 **쿼리 문자열**에 넣어 "주소 하나로 완결된 서명된 요청"을 만드는 방식입니다. S3의 미리 서명 URL과 같은 것입니다.
+3. 그 주소에서 `https://`를 떼고 끝에 `&Version=1`을 붙입니다.
+4. base64로 바꾸고 앞에 `bedrock-api-key-`를 붙입니다.
+
+**실측.** [lab/16-api-key-anatomy.mjs](lab/16-api-key-anatomy.mjs)는 이 레포에 깔린 같은 부품(`@smithy/signature-v4` 3.1.2의 `presign`)으로, AWS 문서의 예시 키·지어낸 세션 토큰·시드니 리전(#2와 같은 상황)을 넣어 같은 모양의 토큰을 만들고 다시 풉니다. 만든 토큰(544자)의 앞부분입니다.
+
+```text
+bedrock-api-key-YmVkcm9jay5hbWF6b25hd3MuY29tLz9BY3Rpb249Q2FsbFdpdGhCZWFyZXJUb2tlbiZYLUFtei1BbGdvcml0
+aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFTSUFJT1NGT0ROTjdFWEFNUExFJTJGMjAyNjExMDUlMkZhcC1z
+…
+```
+
+접두사를 떼고 base64를 풀면 이렇습니다(줄은 `&`마다 나눔).
+
+```text
+bedrock.amazonaws.com/?Action=CallWithBearerToken
+  &X-Amz-Algorithm=AWS4-HMAC-SHA256
+  &X-Amz-Credential=ASIAIOSFODNN7EXAMPLE%2F20261105%2Fap-southeast-2%2Fbedrock%2Faws4_request
+  &X-Amz-Date=20261105T040000Z
+  &X-Amz-Expires=43200
+  &X-Amz-Security-Token=FAKE-SESSION-TOKEN-FROM-CONSOLE-ROLE
+  &X-Amz-Signature=da4f30a4cca2431d37b7d1ff7d081e221a8e8629ee0d18dcab6e06380eb84615
+  &X-Amz-SignedHeaders=host
+  &Version=1
+```
+
+| 칸 | 값 | 여기서 바로 보이는 것 |
+| --- | --- | --- |
+| `X-Amz-Credential` | 키 ID / 날짜 / **리전** / `bedrock` / `aws4_request` | **#2의 원인.** 호스트에 리전이 없으니 이 토큰이 어느 리전 것인지는 이 범위 칸만 정합니다. 도쿄 창구에 내면 범위의 리전이 자기와 다릅니다. 실습에서 도쿄 리전으로 키 사슬을 만들어 확인하면 서명이 맞지 않습니다. 실제 서버가 리전 문자열을 먼저 비교하는지 서명을 계산해 보는지는 공개되지 않았습니다(추정) |
+| `X-Amz-Date` + `X-Amz-Expires` | 한국 11-05 13:00, 43,200초 | **12시간 만료**(한국 11-06 01:00). 만료 칸도 서명 대상이라 7일로 고쳐 쓰면 서명이 틀립니다(실습) |
+| `X-Amz-Security-Token` | 콘솔 세션의 세션 토큰 | **"만든 세션이 끝날 때까지".** 임시 자격 증명으로 만든 키에는 세션 토큰이 그대로 실려서, 그 세션이 먼저 끝나면 키도 끝납니다. 생성기 주석도 "실제 유효 기간은 요청한 만료와 자격 증명 만료 중 짧은 쪽"이라고 적습니다(`src/getToken.ts`) |
+| `Action` | `CallWithBearerToken` | 이 토큰을 쓰는 순간 IAM이 보는 동작 이름(`bedrock:CallWithBearerToken`, #4)과 같은 이름 |
+| `X-Amz-Signature` | 64자 hex | 비밀 키로 만든 서명. **비밀 키 자체는 어디에도 없습니다** |
+| `Version` | `1` | 서명한 뒤에 붙여 서명 대상이 아님 |
+
+**"만들기는 못 막고 쓰기만 막는다"가 코드에서 보입니다.** 1~4단계에 네트워크 호출이 하나도 없습니다. 실습은 `fetch`를 막아 두고 토큰을 만들어 호출이 0번임을 확인합니다. 비밀 키(콘솔이면 세션의 임시 비밀 키)만 있으면 어느 컴퓨터에서든 계산만으로 만들 수 있으므로, AWS가 끼어들 수 있는 때는 그 토큰이 요청에 실려 **들어올 때**뿐입니다. 그래서 SCP가 막은 것도 만들기가 아니라 쓰기(`bedrock:CallWithBearerToken`)였고, AWS 문서도 "단기 키의 생성은 막을 수 없다"고 적습니다.
+
+**12시간은 어디서 오나.** 서명 라이브러리는 미리 서명을 7일까지 받아 줍니다(`@smithy/signature-v4` 3.1.2의 `dist-cjs/index.js` 80행 `MAX_PRESIGNED_TTL`. 실습에서 8일은 거절, 7일은 만들어짐). 12시간 상한은 생성기의 입력 검사(`validateTokenExpiryInput`)입니다. 서버가 12시간이 넘는 토큰을 받아 주는지는 확인하지 못했습니다(확인 필요).
+
+**SigV4와 무엇이 다른가.** SigV4는 요청마다 **그 요청의 내용**(경로·머리글·본문 해시)에 맞는 서명을 새로 만듭니다(아래). API 키 안의 서명은 "`Action=CallWithBearerToken`을 부른다"는 고정된 가짜 요청에 대한 서명 하나라서, 실제 요청의 내용과는 묶여 있지 않습니다. 그래서 가로챈 사람이 할 수 있는 일이 SigV4는 "그 요청 하나를 5분 안에 다시 보내기"인 반면, API 키는 "12시간 동안 그 신원이 할 수 있는 모든 Bedrock 호출"입니다. 위 "베어러 토큰" 문단의 "새면 그대로 남이 씁니다"가 이 뜻입니다.
+
 ### SigV4: 비밀 키를 보내지 않고 증명하기
 
 IAM 액세스 키는 요청에 싣지 않습니다. 대신 요청마다 **서명**을 만들어 붙입니다. 이것이 Signature Version 4(SigV4)입니다.
 
+(2026-11-06 추가) 아래 계산에 나오는 부품입니다.
+
+- **SHA-256**은 어떤 길이의 바이트든 32바이트(hex로 64자) 값으로 줄이는 해시 함수입니다. 입력이 한 비트만 달라도 결과가 완전히 달라지고, 결과에서 입력을 되돌릴 수 없습니다. 키가 없어서 누구나 같은 값을 계산합니다.
+- **HMAC-SHA256**은 비밀 키를 섞은 SHA-256입니다([17-1 HMAC](17-glossary-and-next.md#17-1-용어집), 3-7절 JWT의 HS256과 같은 함수). 같은 키를 가진 쪽만 같은 값을 만듭니다. 3장 JWT는 HMAC을 한 번 쓰고, SigV4는 다섯 번(키 넷 + 서명 하나) 씁니다.
+- **정규화**(canonicalization)는 "같은 뜻이면 같은 바이트"가 되도록 표기를 하나로 고정하는 규칙입니다. 머리글 이름의 대소문자, 머리글 순서, 공백, 쿼리 순서, 경로의 인코딩은 HTTP로는 같은 뜻이어도 바이트가 다를 수 있습니다. 해시는 바이트가 한 개만 달라도 달라지므로, 서명하는 쪽과 확인하는 쪽이 같은 규칙으로 정규화해야 같은 서명이 나옵니다.
+- **퍼센트 인코딩**은 URL에 그대로 쓸 수 없는 바이트를 `%` + 두 자리 hex로 적는 방법입니다(`:` → `%3A`, 한글 "네" → `%EB%84%A4`). SigV4는 `A-Z a-z 0-9 - . _ ~`만 그대로 두고 나머지는 모두 대문자 hex로 적으라고 정합니다(AWS IAM 문서의 `UriEncode`).
+
 ```text
 1. 정규 요청(canonical request)을 만든다
-     메서드 + 경로(인코딩 규칙 고정) + 쿼리 + 서명할 헤더들 + 본문의 SHA-256
+     메서드 + 경로(인코딩 규칙 고정) + 쿼리 + 서명할 머리글(이름:값) + 서명한 머리글 이름 목록 + 본문의 SHA-256
 2. 서명할 문자열 = "AWS4-HMAC-SHA256" + 시각 + 범위(날짜/리전/서비스/aws4_request) + 1의 해시
 3. 서명 키를 비밀 키에서 단계적으로 끌어낸다
      kDate    = HMAC("AWS4" + 비밀 키, 날짜)
@@ -119,13 +179,142 @@ IAM 액세스 키는 요청에 싣지 않습니다. 대신 요청마다 **서명
 4. 서명 = HMAC(kSigning, 2의 문자열)  → Authorization 헤더에 액세스 키 ID·범위·서명을 실음
 ```
 
+(2026-11-06 갱신) 1단계에 "서명한 머리글 이름 목록"을 더했습니다. 실물은 아래 깊이 보기의 정규 요청 18줄입니다.
+
 서버도 같은 계산을 해서 서명이 맞는지 봅니다. 이 설계에서 나오는 성질이 셋 있습니다.
 
 - **비밀 키는 네트워크로 나가지 않습니다.** 중간에서 엿봐도 얻는 것은 그 요청 하나의 서명뿐입니다.
-- **서명은 그 요청에만 맞습니다.** 경로나 본문을 바꾸면 해시가 달라져 서명이 틀립니다. 시각이 들어가므로 몇 분이 지나면 같은 요청을 다시 보내도 거절됩니다(재전송 공격 방지).
+- **서명은 그 요청에만 맞습니다.** 경로나 본문을 바꾸면 해시가 달라져 서명이 틀립니다. (2026-11-06 갱신) 시각도 서명에 들어가므로, 요청의 시각(`X-Amz-Date`)이 서버 시각과 **약 5분** 넘게 어긋나면 거절됩니다. AWS 문서는 "대부분의 경우 요청은 요청에 적힌 시각으로부터 5분 안에 AWS에 닿아야 한다"고 적고, 미래 쪽이면 `Signature not yet current`, 과거 쪽이면 `Signature expired`로 거절합니다. 이것은 **재전송 공격**(가로챈 요청을 그대로 다시 보내 같은 일을 또 시키는 공격)을 **시간으로 제한**하는 장치이지 완전히 막는 장치가 아닙니다. SigV4에는 한 번만 쓰는 값(nonce)이 없어서, **그 5분 창 안에서 같은 요청을 다시 보내는 것은 서명만으로는 구별되지 않습니다.** 서명되지 않은 머리글(예: `user-agent`)은 바꿔서 보내도 서명이 맞습니다(아래 깊이 보기). 창 안의 재전송은 TLS(요청을 가로채기 어렵게 함)와, 필요하면 서비스 쪽의 중복 처리로 막습니다. 실제로 Bedrock이 창 안의 같은 요청을 두 번 받아 주는지는 확인하지 않았습니다.
 - **서명 키는 날짜·리전·서비스로 좁혀집니다.** 3단계의 사슬 때문입니다. 도쿄 Bedrock용으로 끌어낸 키로는 다른 리전이나 서비스의 요청을 서명할 수 없습니다.
 
-1단계의 "경로 인코딩 규칙"은 실제로 함정이었습니다. 다른 작업에서 `curl --aws-sigv4`로 콜론(`:`)이 든 모델 ID(`…-v1:0`)를 부르자, 서버가 "우리가 계산한 서명과 다르다"며 자기가 기대한 정규 요청(콜론이 `%3A`로 인코딩된 경로)을 돌려줬습니다. 서명하는 쪽과 서버가 경로를 다르게 인코딩하면 키가 맞아도 실패합니다. SDK가 이런 규칙을 대신 처리해 주는 것이 **직접 서명하지 말고 SDK를 쓰는** 이유입니다.
+1단계의 "경로 인코딩 규칙"은 실제로 함정이었습니다. 다른 작업에서 `curl --aws-sigv4`로 콜론(`:`)이 든 모델 ID(`…-v1:0`)를 부르자, 서버가 "우리가 계산한 서명과 다르다"며 자기가 기대한 정규 요청(콜론이 `%3A`로 인코딩된 경로)을 돌려줬습니다. 서명하는 쪽과 서버가 경로를 다르게 인코딩하면 키가 맞아도 실패합니다. SDK가 이런 규칙을 대신 처리해 주는 것이 **직접 서명하지 말고 SDK를 쓰는** 이유입니다. (2026-11-06 갱신) 왜 어긋났는지는 아래 깊이 보기의 "경로는 한 번 더 인코딩한다"에서 코드와 실측으로 풉니다.
+
+#### 깊이 보기: SigV4 서명을 손으로 다시 계산하기 (2026-11-06 추가)
+
+3-7절에서 JWT 서명을 `createHmac` 한 줄로 다시 계산했듯이, 여기서는 Bedrock 요청 하나의 서명을 처음부터 끝까지 다시 계산합니다. [lab/16-sigv4.mjs](lab/16-sigv4.mjs)는 운영과 같은 `createBedrockClient()`([src/models/index.ts](../../src/models/index.ts))를 쓰되, [src/models/index.test.ts](../../src/models/index.test.ts)처럼 `fetch`를 가로채 선로에 나갈 요청을 받아 냅니다. 키는 AWS SigV4 문서의 예시 키(`AKIDEXAMPLE` / `wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY`)를 운영처럼 환경변수로 넣고, 시각은 2026-11-05T23:30:00Z(한국 11-06 08:30)로 고정했습니다. 그다음 **서버가 하듯** Authorization 머리글에서 범위와 서명할 머리글 목록을 읽어 서명을 다시 계산합니다.
+
+**선로에 나간 요청.** 플러그인처럼 `stream: true`와 시간 제한 10초로 부른 첫 시도입니다.
+
+```text
+POST https://bedrock-runtime.ap-northeast-1.amazonaws.com/model/jp.anthropic.claude-haiku-5-5/invoke-with-response-stream
+accept: application/json
+authorization: AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261105/ap-northeast-1/bedrock/aws4_request,
+               SignedHeaders=accept;content-type;host;x-amz-content-sha256;x-amz-date;x-stainless-arch;x-stainless-lang;x-stainless-os;x-stainless-package-version;x-stainless-retry-count;x-stainless-runtime;x-stainless-runtime-version;x-stainless-timeout,
+               Signature=1360e25344f58edb3a7d5bc8bb108c3b66831fc99e358746db4fb812c64cb32d
+content-type: application/json
+host: bedrock-runtime.ap-northeast-1.amazonaws.com
+user-agent: AnthropicBedrock/JS 1.4.0
+x-amz-content-sha256: 330b7b94acf7451e9e51f459e6694dcdbec350cbb28c4659aeaa11f51b84071f
+x-amz-date: 20261105T233000Z
+x-stainless-arch: arm64
+x-stainless-lang: js
+x-stainless-os: MacOS
+x-stainless-package-version: 1.4.0
+x-stainless-retry-count: 0
+x-stainless-runtime: node
+x-stainless-runtime-version: v24.22.2
+x-stainless-timeout: 10
+(본문 107바이트) {"max_tokens":64,"messages":[{"role":"user","content":"안녕하세요"}],"anthropic_version":"2026-10-21"}
+```
+
+`authorization`은 원래 한 줄이고 읽기 좋게 쉼표에서 나눴습니다. `x-stainless-*`는 Anthropic SDK가 붙이는 진단용 머리글(운영체제, 런타임 판, 재시도 횟수, 시간 제한 초)이라 기계마다 값이 달라지고, 그래서 마지막 서명 값은 돌리는 기계마다 다릅니다.
+
+**1단계: 정규 요청.** 줄 번호는 설명용이고 실제로는 줄바꿈(`\n`)으로 이은 문자열입니다.
+
+```text
+ 1 │POST
+ 2 │/model/jp.anthropic.claude-haiku-5-5/invoke-with-response-stream
+ 3 │
+ 4 │accept:application/json
+ 5 │content-type:application/json
+ 6 │host:bedrock-runtime.ap-northeast-1.amazonaws.com
+ 7 │x-amz-content-sha256:330b7b94acf7451e9e51f459e6694dcdbec350cbb28c4659aeaa11f51b84071f
+ 8 │x-amz-date:20261105T233000Z
+ 9 │x-stainless-arch:arm64
+10 │x-stainless-lang:js
+11 │x-stainless-os:MacOS
+12 │x-stainless-package-version:1.4.0
+13 │x-stainless-retry-count:0
+14 │x-stainless-runtime:node
+15 │x-stainless-runtime-version:v24.22.2
+16 │x-stainless-timeout:10
+17 │
+18 │accept;content-type;host;x-amz-content-sha256;x-amz-date;x-stainless-arch;…;x-stainless-timeout
+19 │330b7b94acf7451e9e51f459e6694dcdbec350cbb28c4659aeaa11f51b84071f
+```
+
+| 줄 | 내용 | 규칙 |
+| --- | --- | --- |
+| 1 | 메서드 | 대문자 그대로 |
+| 2 | 경로 | 선로의 경로를 `/`로 나눈 조각마다 **한 번 더** 퍼센트 인코딩(아래 "경로는 한 번 더") |
+| 3 | 쿼리 | 없으면 빈 줄. 있으면 이름·값을 각각 인코딩하고 이름순 정렬 |
+| 4~16 | 서명할 머리글 13개 | 이름은 소문자, 이름순, `이름:값`, 값의 앞뒤 공백 제거·연속 공백 하나로 |
+| 17 | 빈 줄 | 머리글 덩어리가 각 줄 끝에 `\n`을 달고, 거기에 구분 `\n`이 하나 더 붙어서 생김 |
+| 18 | 서명한 머리글 이름 목록 | `;`로 이음. Authorization의 `SignedHeaders`와 같은 값. 서버는 이 목록으로 4~16줄을 다시 만듦 |
+| 19 | 본문 SHA-256 | 본문 107바이트의 해시. `x-amz-content-sha256` 머리글 값과 같음(실습에서 확인) |
+
+**2단계: 서명할 문자열.** 정규 요청 전체를 SHA-256 한 값으로 줄여 넷째 줄에 넣습니다.
+
+```text
+AWS4-HMAC-SHA256
+20261105T233000Z
+20261105/ap-northeast-1/bedrock/aws4_request
+297026fa42857b53a66de262b4cbc1f6110c3ee9ca5f8612bc59e1b640d16be8
+```
+
+셋째 줄이 **범위**(credential scope)입니다. Authorization의 `Credential=` 뒤에도 키 ID와 함께 그대로 실려, 서버가 어느 날짜·리전·서비스용 키로 확인할지 알게 합니다.
+
+**3단계: 키 사슬.** 앞 단계의 결과(32바이트)가 다음 단계의 HMAC 키가 됩니다.
+
+| 단계 | 키 | 데이터 | 결과 (hex) |
+| --- | --- | --- | --- |
+| kDate | `"AWS4" + 비밀 키` (문자열) | `20261105` | `436747a62f8ebc7a03d250f83d6ea3a372c68d7f042cf83791fa5a2c617238ad` |
+| kRegion | kDate | `ap-northeast-1` | `f4745a72dd9b0ec6089301070d85fcce9d3b4bf0893c8bf5e51f8f1b87159a0b` |
+| kService | kRegion | `bedrock` | `95ae36ea352de4d58269c46e1a026fbd3d118545948693f04c48962039fa2924` |
+| kSigning | kService | `aws4_request` | `38fa558a39619a8b2f1ef302240c62639c704a273d2c3e93b71cb6cb302f9b6e` |
+
+이 네 값은 비밀 키·날짜·리전·서비스만으로 정해지므로, 같은 예시 키로 누가 계산해도 같습니다. **4단계**는 `HMAC(kSigning, 2단계 문자열)`의 hex입니다.
+
+```text
+SDK의 서명     : 1360e25344f58edb3a7d5bc8bb108c3b66831fc99e358746db4fb812c64cb32d
+다시 계산한 값 : 1360e25344f58edb3a7d5bc8bb108c3b66831fc99e358746db4fb812c64cb32d
+일치: true
+```
+
+`node:crypto`의 `createHash`·`createHmac`만으로 같은 값이 나옵니다. 서버가 하는 일도 이것과 같습니다. 다른 점은 서버는 키 ID로 자기 쪽에 저장된 비밀 키를 찾는다는 것뿐입니다.
+
+**출력에서 읽을 것.**
+
+- **서명되는 머리글은 15개 중 13개입니다.** 빠진 것은 `authorization`(서명 자신)과 `user-agent`입니다. `@smithy/signature-v4` 3.1.2는 `user-agent`, `connection`, `x-amzn-trace-id` 등을 늘 빼는 목록(`ALWAYS_UNSIGNABLE_HEADERS`, `dist-cjs/index.js` 56~71)을 갖고 있고, AWS 문서도 프록시나 로드 밸런서가 고칠 수 있는 머리글은 서명하지 말라고 권합니다. Bedrock SDK는 여기에 OpenTelemetry 추적 머리글(`traceparent`, `tracestate`, `baggage`)도 더해 뺍니다(`core/auth.js` 122, `internal/trace-headers.js`). 서명 뒤에 HTTP 계측 도구가 이 머리글을 붙이거나 바꿔도 서명이 깨지지 않게 하려는 것입니다(15-6절의 OTel 트레이스).
+- **범위의 서비스 이름은 `bedrock`입니다.** 호스트는 `bedrock-runtime`이지만 Bedrock SDK가 `service: 'bedrock'`으로 서명합니다(`node_modules/@anthropic-ai/bedrock-sdk/core/auth.js` 97~102). 호스트 이름과 서명용 서비스 이름은 다를 수 있다는 뜻입니다. 다른 작업의 `curl --aws-sigv4 "aws:amz:ap-northeast-1:bedrock"`도 같은 이름으로 서명해 인증을 통과했습니다(모델 사용 자격 403까지 감).
+- **범위 날짜는 UTC입니다.** 한국 11-06 08:30에 서명했는데 범위 날짜는 `20261105`입니다. 한국 시각 오전 9시 전에는 범위 날짜가 "어제"이고, 09:00:00부터 오늘이 됩니다(실습 6번). 서버는 범위 날짜가 `x-amz-date`의 날짜와 다르면 `Date in Credential scope does not match …`로 거절합니다(AWS 문서). 로그에서 날짜가 하루 어긋나 보여도 이상이 아닙니다.
+- **본문 안의 `anthropic_version`은 `2026-10-21`입니다.** Bedrock SDK는 Anthropic SDK가 붙이는 `anthropic-version` 머리글 값을 본문으로 옮기는데(`client.js` 189~200), SDK 1.4.0의 그 값이 `2026-10-21`입니다(`@anthropic-ai/sdk` 1.4.0 `client.js` 972). AWS 문서는 이 값이 `bedrock-2023-05-31`이어야 한다고 적지만, 같은 SDK로 2026-11-05 A/B에서 Haiku 4.5가 응답했으므로 지금 서버는 받아 주는 것으로 봅니다(추정, 그때 본문을 찍지는 않음). 16-6절 표를 이에 맞춰 고쳤습니다.
+
+**한 곳씩 바꿔 보기.** 받은 요청의 한 곳만 바꾸고 같은 계산을 다시 하면 이렇습니다(실습 3번).
+
+| 바꾼 곳 | 결과 | 이유 |
+| --- | --- | --- |
+| 본문 "안녕하세요" → "안녕하세여" | 서명 틀림 | 본문 해시(19줄)가 바뀜 |
+| `x-stainless-retry-count` 0 → 1 | 서명 틀림 | 서명된 머리글(13줄) |
+| `x-amz-date` 1초 뒤로 | 서명 틀림 | 8줄과 서명할 문자열 2줄 |
+| `user-agent`를 `curl/8.7.1`로 | **서명 맞음** | 서명되지 않은 머리글. 창 안에서 이런 부분은 남이 바꿔도 통과 |
+| 서버의 비밀 키가 다름 | 서명 틀림 | 키 사슬 첫 단계부터 달라짐 |
+
+**재시도마다 다시 서명합니다.** `x-stainless-retry-count`가 서명된 머리글이라, SDK가 같은 요청을 다시 보낼 때도 서명을 새로 해야 합니다. 실습 4번은 SDK 재시도를 한 번 켜고(500 → 400) 두 요청을 비교합니다. 시각을 고정했는데도 retry-count가 0과 1로 달라 서명이 `1360e253…`과 `547a6823…`으로 다릅니다. Bedrock SDK는 서명을 요청을 보내기 직전의 미들웨어(`client.js` 169~176의 `backendMiddleware` → 233~247의 `getAuthHeaders`)에서 하므로 시도마다 새로 서명됩니다. 운영 코드는 `maxRetries: 0`이라 이 값은 늘 0이고, 재시도는 LiveKit이 **새 요청**으로 하므로 `x-amz-date`부터 달라져 역시 새 서명입니다(16-1절의 #37 경로).
+
+**서명 키는 기억해 둡니다.** HMAC 네 번짜리 키 사슬은 요청마다 계산하지 않습니다. `@smithy/signature-v4`가 (날짜, 리전, 서비스, 자격 증명의 해시, 세션 토큰)을 열쇠로 최근 50개까지 모듈 안에 기억합니다(`dist-cjs/index.js` 85~103 `signingKeyCache`). 하루에 한 번, 날짜가 바뀔 때(한국 오전 9시) 새로 계산됩니다. 요청마다 새로 하는 것은 정규 요청 해시와 마지막 HMAC 한 번입니다.
+
+**경로는 한 번 더 인코딩한다: 콜론 함정의 정체.** 실습 5번은 콜론이 든 모델 ID(`jp.anthropic.claude-haiku-4-5-20251001-v1:0`)로 같은 일을 합니다.
+
+```text
+선로의 경로      : /model/jp.anthropic.claude-haiku-4-5-20251001-v1:0/invoke-with-response-stream
+정규 요청의 경로 : /model/jp.anthropic.claude-haiku-4-5-20251001-v1%3A0/invoke-with-response-stream
+```
+
+- **선로에는 콜론이 그대로 나갑니다.** Bedrock SDK가 경로를 만들 때 쓰는 인코더는 RFC 3986에서 경로에 써도 되는 글자(`:`, `@`, `!` 등)를 그대로 둡니다(`internal/utils/path.js` 14~16 `encodeURIPath`).
+- **정규 요청에는 그 경로를 조각마다 한 번 더 인코딩해서 넣습니다.** `@smithy/signature-v4`의 `getCanonicalPath`(`dist-cjs/index.js` 529~550)가 경로를 정리한 뒤 `escapeUri`로 한 번 더 바꾸고 `%2F`만 `/`로 되돌립니다. 코드의 변수 이름도 `doubleEncoded`입니다. 이 동작은 `uriEscapePath` 옵션(기본 `true`, AWS SDK 설정 이름으로는 `signingEscapePath`)으로 켜져 있고, 알려진 바로는 S3 클라이언트만 이것을 끕니다(이 레포에는 S3 클라이언트가 없어 코드로 보지는 않음). "S3가 아닌 서비스는 선로의 경로를 한 번 더 인코딩한다"는 규칙입니다. 지금 AWS IAM 문서 본문에는 "두 번"이라는 말이 직접 나오지 않아서, 규칙은 SDK 코드와 서버가 돌려준 정규 요청(콜론이 `%3A`)으로 확인한 것입니다.
+- **`curl`은 경로를 받은 그대로 정규 요청에 넣습니다.** `curl` 8.7.1로 127.0.0.1의 가짜 서버에 `--aws-sigv4`를 보내고, 받은 서명을 두 가지 정규 경로로 다시 계산해 봤습니다. 서명이 맞은 쪽은 `v1:0`(그대로)이었고 `v1%3A0`은 맞지 않았습니다(실측). 서버는 `v1%3A0`으로 계산하니 서명이 어긋난 것입니다. 모델 ID를 미리 `v1%3A0`으로 바꿔 보내면 curl은 `v1%3A0`으로, 서버는 한 번 더 바꾼 `v1%253A0`으로 계산하므로 역시 어긋납니다(curl 쪽은 실측, 서버 쪽은 SDK 규칙에서 추정). 그날 받은 오류 본문의 정규 경로가 `%3A`였던 것과 맞습니다.
+- 이 레포의 운영 모델 ID(`jp.anthropic.claude-haiku-5-5`)에는 콜론이 없어 이 함정을 밟지 않지만, Haiku 4.5처럼 `-v1:0`이 붙는 ID로 바꾸면 SDK는 맞게 처리하고, 경로를 받은 그대로 서명하는 도구(curl 8.7.1의 `--aws-sigv4` 등)는 틀립니다.
 
 ---
 
@@ -134,15 +323,17 @@ IAM 액세스 키는 요청에 싣지 않습니다. 대신 요청마다 **서명
 코드에 키를 넣지 않아도 AWS SDK는 정해진 순서로 자격 증명을 찾습니다. 이것을 **자격 증명 체인**(credential provider chain)이라고 합니다. Node용 기본 체인은 대략 이 순서입니다.
 
 ```text
-환경변수 (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN)
-→ SSO 로그인 캐시
-→ 공유 파일 (~/.aws/credentials, ~/.aws/config의 프로필)
+환경변수 (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN)   ← AWS_PROFILE이 있으면 건너뜀
+→ SSO (코드에서 SSO 설정을 직접 넘겼을 때만)
+→ 공유 파일 (~/.aws/credentials, ~/.aws/config의 프로필. 프로필에 적은 SSO·역할 맡기도 여기서)
 → 외부 프로세스 (credential_process)
-→ 웹 ID 토큰 파일 (AWS_WEB_IDENTITY_TOKEN_FILE + 역할 → STS)
-→ 컨테이너·인스턴스 메타데이터 (ECS 작업 역할, EC2 인스턴스 역할)
+→ 웹 ID 토큰 파일 (AWS_WEB_IDENTITY_TOKEN_FILE + AWS_ROLE_ARN → STS)
+→ 컨테이너 자격 증명(ECS 작업 역할 등) 또는 EC2 인스턴스 메타데이터(IMDS)
 ```
 
 앞에서 찾으면 뒤는 보지 않습니다. 같은 코드가 노트북에서는 환경변수로, AWS 서버에서는 인스턴스 역할로 인증되는 것이 이 체인 덕분입니다.
+
+(2026-11-06 갱신) 순서를 `@aws-sdk/credential-provider-node` 3.972.92의 코드(`dist-cjs/index.js` 96~160 `defaultProvider`)에 맞췄습니다. 지난 판의 "SSO 로그인 캐시" 단계는 코드에서 SSO 설정을 직접 넘길 때만 쓰이고 평소에는 건너뜁니다(126~134). `aws sso login`으로 쓰는 보통의 SSO는 프로필 단계가 처리합니다. 마지막 단계는 ECS 같은 컨테이너용 변수(`AWS_CONTAINER_CREDENTIALS_*_URI`)가 있으면 그쪽, 없으면 IMDS로 갑니다(5~19). **IMDS**(Instance Metadata Service)는 EC2 가상 머신 안에서만 닿는 주소 `169.254.169.254`의 HTTP 서비스로, 그 머신에 붙은 역할의 임시 자격 증명을 내줍니다. `AWS_EC2_METADATA_DISABLED=true`면 이 단계를 끕니다.
 
 ### Bedrock SDK의 우선순위
 
@@ -170,6 +361,62 @@ Bedrock을 붙인 직후 `.env.local`에는 처음 받은 단기 API 키(`AWS_BE
 
 이 함정은 8-8절의 "import 시점에 읽는 환경변수"와 같은 계열입니다. **암묵적으로 읽는 설정은 우선순위가 정해져 있고, 그 순서를 모르면 내가 넣은 값이 아닌 다른 값이 쓰입니다.** 인증 수단처럼 정책과 얽힌 설정은 명시적으로 고르는 편이 안전합니다.
 
+#### 깊이 보기: 체인의 실제 동작 — 순서 뒤집기와 요청마다 다시 찾기 (2026-11-06 추가)
+
+위 우선순위의 4·5단계는 실제로는 체인 하나입니다. 생성자에 키를 넘기지 않으면(이 레포가 그렇습니다) Bedrock SDK는 서명할 때마다 이 함수를 부릅니다(`node_modules/@anthropic-ai/bedrock-sdk/core/auth.js` 48~63, 줄여 옮김).
+
+```js
+const DEFAULT_PROVIDER_CHAIN_RESOLVER = (logger) =>
+  import('@aws-sdk/credential-providers').then(({ createCredentialChain, fromEnv, fromNodeProviderChain }) =>
+    // The Node default chain skips env credentials whenever `AWS_PROFILE` is set;
+    // the AWS CLI and the other Anthropic SDKs let env credentials win.
+    createCredentialChain(fromEnv(…), fromNodeProviderChain({ … })),
+  );
+```
+
+여기서 두 가지가 나옵니다.
+
+**(가) `AWS_PROFILE`이 있으면 순서가 뒤집힙니다.** Node 기본 체인의 첫 단계는 `AWS_PROFILE`이 설정돼 있으면 환경변수 키가 있어도 "AWS_PROFILE is set, skipping fromEnv provider"를 던지고 다음 단계(프로필)로 넘어갑니다. 둘 다 있으면 경고를 한 번 찍습니다(`@aws-sdk/credential-provider-node` `dist-cjs/index.js` 96~122). Bedrock SDK는 그 체인 **앞에** `fromEnv`를 하나 더 둬서, 위 주석대로 AWS CLI처럼 환경변수 키가 이기게 만듭니다. [lab/16-credential-chain.mjs](lab/16-credential-chain.mjs) 1번은 임시 폴더에 `[demo]` 프로필 파일을 만들고 `AWS_PROFILE=demo`와 환경변수 키를 함께 둔 실측입니다.
+
+```text
+Node 기본 체인        → AKIDPROFILEEXAMPLE  (환경변수를 건너뛰고 프로필)
+  그때 나온 경고: @aws-sdk/credential-provider-node - defaultProvider::fromEnv WARNING: Multiple credential sources detected: …
+Bedrock SDK 체인      → AKIDENVEXAMPLE  (fromEnv를 맨 앞에 둬서 환경변수가 이김)
+```
+
+같은 기계에서 다른 Node AWS SDK 도구는 프로필의 신원으로, 이 워커는 `.env.local`의 신원으로 움직일 수 있다는 뜻입니다. 거절을 볼 때 "누가"(16-1절)를 먼저 확인해야 하는 이유가 하나 더 생깁니다.
+
+**(나) 체인을 요청마다 새로 만들어, 기억이 요청 사이에 남지 않습니다.** 위 함수는 `getAuthHeaders`(같은 파일 70~124) 안에서 불리고, `getAuthHeaders`는 요청을 보내기 직전의 미들웨어에서 **시도마다** 불립니다(`client.js` 169~176, 233~247). 그런데 기억(memoize)은 체인 객체 안에 있습니다.
+
+- `createCredentialChain`은 기억하지 않고 매번 차례로 물어봅니다(`@aws-sdk/credential-providers` `dist-cjs/index.js` 4~23).
+- `fromNodeProviderChain`은 처음 불릴 때 기본 체인을 만들어 **자기 클로저 안에** 두고(103~112), 기본 체인은 받은 자격 증명을 만료 5분 전까지 다시 씁니다(`credential-provider-node` 21~77, 161~162).
+- 그런데 Bedrock SDK가 요청마다 `fromNodeProviderChain(…)`을 새로 부르므로 클로저도 매번 새것이고, 기억은 요청 하나가 끝나면 버려집니다(코드로 확인).
+
+지금처럼 **환경변수 키**면 `fromEnv`가 `process.env`를 읽고 끝나므로 아무 문제가 없습니다. 자격 증명을 **네트워크에서 받아 오는 방식**으로 바꾸면 달라집니다. 실습 2~4번은 STS와 IMDS를 127.0.0.1의 가짜 서버로 돌려(`AWS_ENDPOINT_URL_STS`, `AWS_EC2_METADATA_SERVICE_ENDPOINT`) Bedrock 요청을 여러 번 보내고 호출 수를 셉니다. 가짜 STS는 응답 전에 40ms를 쉽니다(서울–도쿄 왕복 약 41ms, 13장 실측과 비슷한 값으로 가정).
+
+| 자격 증명 출처 | 요청 3번에 STS·IMDS 호출 | 요청을 내보내기까지 걸린 시간 |
+| --- | --- | --- |
+| 환경변수 키 (지금 운영) | 0번 | — |
+| 웹 ID 토큰 + STS, 지금 코드 | **3번 (요청마다 1번)** | 첫 요청 73~88ms(모듈 읽기 포함, 세 번 돌린 범위), 그다음 **46ms씩** |
+| 웹 ID 토큰 + STS, 체인을 한 번만 만들어 넘김 | 1번 | 첫 요청 47~48ms, 그다음 1~3ms |
+| IMDS, 지금 코드 | **요청마다 3번** (`PUT /latest/api/token` → 역할 이름 → 자격 증명) | (지연을 넣지 않음) |
+
+- 웹 ID나 IMDS로 바꾸면 **매 턴 LLM 요청 앞에 자격 증명 왕복이 붙습니다.** 13장의 지연 예산에서 첫 토큰 시간에 그대로 더해지는 몫입니다. 실제 STS까지의 왕복은 STS 엔드포인트 위치에 따라 다르고 재지 않았습니다.
+- 16-1절의 #37 경로와 겹치면, 실패한 한 턴에 네 번 보내는 동안 STS도 네 번 부릅니다(코드로 추론).
+- 웹 ID 토큰 파일은 부를 때마다 다시 읽습니다(`@aws-sdk/credential-provider-web-identity` `dist-cjs/index.js` 34~47의 `readFileSync`). 파일이 갱신돼도 따라가는 것은 장점입니다.
+- STS에는 호출량 한도가 있어, 통화가 많아지면 한도에 가까워질 수 있습니다(추정, 한도 값은 확인하지 않음).
+
+**대응(제안, 코드는 고치지 않았습니다).** 체인을 워커가 한 번만 만들어 `providerChainResolver`로 넘기면 기억이 살아남습니다. SDK가 생성자 옵션으로 열어 둔 자리입니다(`client.js` 81 주석).
+
+```ts
+import { createCredentialChain, fromEnv, fromNodeProviderChain } from '@aws-sdk/credential-providers';
+
+const credentials = createCredentialChain(fromEnv(), fromNodeProviderChain()); // SDK와 같은 순서, 한 번만
+new AnthropicBedrock({ awsRegion, apiKey: null, maxRetries: 0, providerChainResolver: async () => credentials });
+```
+
+`@aws-sdk/credential-providers`는 지금 Bedrock SDK를 통해서만 들어와 있어서, 쓰려면 `package.json`에 직접 넣어야 합니다. 지금의 환경변수 키에서는 필요 없고, 16-9절의 연동으로 갈 때 함께 바꿀 일입니다.
+
 ---
 
 ## 16-5. 인가: IAM 정책은 어떻게 평가되나
@@ -195,8 +442,15 @@ IAM 정책은 JSON 문서이고, 규칙(statement) 하나는 이렇게 읽습니
 | --- | --- | --- |
 | 신원 기반 정책 | 사용자·역할 | "이 신원은 무엇을 할 수 있나" (권한을 **줌**) |
 | 자원 기반 정책 | S3 버킷 등 자원 | "누가 이 자원을 쓸 수 있나" |
+| **신뢰 정책** (2026-11-06 추가) | IAM 역할 | "누가 이 역할을 **맡을** 수 있나". 역할에 붙는 자원 기반 정책의 한 종류 |
 | **SCP** | 조직의 계정·조직 단위 | "이 계정 안의 누구도 이 이상은 못 한다" (상한, 권한을 **주지 않음**) |
 | 권한 경계, 세션 정책 | 사용자·역할, 세션 | 추가 상한 |
+
+(2026-11-06 추가) 표의 낯선 이름 셋입니다.
+
+- **주체**(principal)는 요청을 보낸 신원입니다. IAM 사용자, 역할 세션(`assumed-role/…`), 연동된 외부 신원(`accounts.google.com`의 서비스 계정 등), AWS 서비스가 될 수 있습니다. 신원 기반 정책에는 주체 칸이 없고(붙은 곳이 곧 주체), 자원 기반 정책과 신뢰 정책에는 `Principal` 칸이 있습니다.
+- **신뢰 정책과 역할 맡기**(AssumeRole). 역할은 권한(신원 기반 정책)과 "누가 맡을 수 있나"(신뢰 정책)를 따로 갖습니다. 누군가 STS에 `AssumeRole`(AWS 신원이 맡을 때), `AssumeRoleWithWebIdentity`(OIDC 토큰으로 맡을 때) 등을 부르면 STS가 신뢰 정책을 평가하고, 통과하면 그 역할의 임시 자격 증명을 줍니다. 다른 계정의 신원이 맡을 때는 신뢰 정책과 그 계정 쪽 신원 정책의 `sts:AssumeRole` 허용이 **둘 다** 있어야 합니다. 콘솔 로그인 역할 `AccountFullAccessRole`(16-2절)도 신뢰 정책이 허용한 누군가가 맡은 것입니다. 그 신뢰 정책은 조회하지 않았습니다.
+- **권한 경계**(permissions boundary)는 사용자·역할에 붙이는 "이 신원이 가질 수 있는 최대 권한"이고, **세션 정책**은 역할을 맡을 때 요청에 실어 그 세션만 더 좁히는 정책입니다. 둘 다 SCP처럼 권한을 주지 않고 상한만 정합니다. 최종 권한은 교집합입니다(아래 깊이 보기에서 오사카 예).
 
 ### 평가 순서
 
@@ -217,6 +471,8 @@ IAM 정책은 JSON 문서이고, 규칙(statement) 하나는 이렇게 읽습니
 조직 SCP의 실제 내용은 작업 계정에서 조회 권한이 없어 보지 못했습니다(추정). 다만 AWS 문서의 Bedrock 예시 SCP에 **API 키 만들기(`iam:CreateServiceSpecificCredential`)와 쓰기(`bedrock:CallWithBearerToken`)를 함께 막는 정책**이 있고, 메시지가 그 동작과 정확히 맞습니다. 베어러 토큰은 새면 그대로 쓰이므로(16-3절), 보안을 중시하는 조직이 흔히 거는 규칙입니다.
 
 여기서 한 가지가 더 설명됩니다. #3에서 같은 키가 **Mantle 창구에서는 인증을 통과**했습니다. AWS 문서에 따르면 Mantle 창구의 API 키 사용은 별도 동작(`bedrock-mantle:CallWithBearerToken`)이라, `bedrock:CallWithBearerToken`만 막으면 Mantle은 막히지 않습니다. 같은 키가 창구에 따라 통과하고 막힌 이유입니다.
+
+(2026-11-06 추가) 2026-11-06에 다시 본 AWS 문서("Control permissions for generating and using Amazon Bedrock API keys")의 예시는 `iam:CreateServiceSpecificCredential`, `bedrock:CallWithBearerToken`, `bedrock-mantle:CallWithBearerToken` **셋을 함께** 거부하고, "API 키 사용을 완전히 막으려면 두 동작을 모두 거부해야 한다"고 적습니다. 단기·장기 키를 가르는 조건 키 `bedrock:bearerTokenType`(`SHORT_TERM`·`LONG_TERM`)도 있습니다. 이 조직의 SCP가 Mantle을 막지 않은 것은 Mantle 동작이 생기기 전의 예시 모양(둘만 거부)이기 때문으로 보입니다(추정, SCP 원문은 보지 못함).
 
 ### 최소 권한: 지금 정책과 운영용 정책
 
@@ -255,8 +511,81 @@ IAM 정책은 JSON 문서이고, 규칙(statement) 하나는 이렇게 읽습니
 
 - 기본 모델 ARN에는 계정 칸이 비어 있습니다(`::`). AWS가 가진 공용 자원이기 때문입니다.
 - 두 번째 규칙의 조건은 "기본 모델은 **이 프로필을 거쳐서만** 부를 수 있다"는 뜻입니다. 프로필 없이 오사카 모델을 바로 부르는 것은 허용하지 않습니다.
-- **빠뜨리기 쉬운 것:** 서버리스 모델은 첫 호출 때 AWS Marketplace 구독이 자동으로 만들어지는데, AWS 문서에 따르면 그 첫 호출을 하는 신원에게 `aws-marketplace:Subscribe`·`Unsubscribe`·`ViewSubscriptions` 권한이 있어야 합니다. 관리자가 한 번 먼저 불러 구독을 만들어 두면 이후 신원에게는 필요 없습니다. 지금의 관리형 정책이 이것을 포함하는지는 확인 필요입니다.
+- **빠뜨리기 쉬운 것:** 서버리스 모델은 첫 호출 때 AWS Marketplace 구독이 자동으로 만들어지는데, AWS 문서에 따르면 그 첫 호출을 하는 신원에게 `aws-marketplace:Subscribe`·`Unsubscribe`·`ViewSubscriptions` 권한이 있어야 합니다. 관리자가 한 번 먼저 불러 구독을 만들어 두면 이후 신원에게는 필요 없습니다. 지금의 관리형 정책이 이것을 포함하는지는 확인 필요입니다. (2026-11-06 추가) **Marketplace 구독**은 AWS가 다른 회사(여기서는 Anthropic)의 상품을 대신 파는 장터에서 그 상품을 "이 계정이 쓰겠다"고 등록해 두는 것입니다. 청구와 판매사 약관이 이 구독에 묶이므로, Bedrock의 Anthropic 모델도 이 경로로 계정에 열립니다.
 - 이 정책은 원리를 보여 주는 예시입니다. 운영 전환 때 실제 호출로 검증합니다.
+
+#### 깊이 보기: 정책 평가를 손으로 따라 하기 (2026-11-06 추가)
+
+**요청을 네 칸으로 적습니다.** AWS는 요청 하나를 받으면 먼저 "요청 문맥"을 만듭니다. #4를 그 모양으로 적으면 이렇습니다.
+
+| 칸 | #4의 값 | 어디서 왔나 |
+| --- | --- | --- |
+| 주체 | `arn:aws:sts::<작업 계정 ID>:assumed-role/AccountFullAccessRole/<세션 이름>` | 토큰 안의 자격 증명(16-3절 깊이 보기의 `X-Amz-Credential`·세션 토큰)이 가리키는 신원 |
+| 동작 | `bedrock:CallWithBearerToken` | 베어러 토큰으로 들어온 요청이라 붙는 동작. 실제 호출 동작(`bedrock:InvokeModelWithResponseStream`)의 권한도 따로 필요한 것으로 보임(확인 필요) |
+| 자원 | `*` | 오류 메시지의 `resource: *` |
+| 조건 값 | `bedrock:bearerTokenType = SHORT_TERM` 등 | 요청에서 AWS가 채움. 조건 키는 서비스마다 정해져 있음 |
+
+**정책 문장마다 맞는지 봅니다.** 한 문장이 "맞는다"는 것은 동작·자원(·주체)·조건이 **모두** 맞는다는 뜻입니다. 동작과 자원은 `*`(0자 이상)·`?`(한 글자) 와일드카드를 쓰고, 동작 이름은 대소문자를 가리지 않습니다. 조건은 연산자끼리·키끼리 모두 맞아야 하고(AND), 한 키에 값을 여러 개 적으면 그중 하나만 맞으면 됩니다(OR). **요청에 그 조건 키가 아예 없으면** `…IfExists`가 붙지 않은 연산자는 거짓입니다. [lab/16-policy-eval.mjs](lab/16-policy-eval.mjs)의 장난감 평가기가 #4를 이렇게 찍습니다(SCP 내용은 보지 못해 메시지와 AWS 문서 예시로 추정한 모양).
+
+```text
+  정책 | 문장 | 효과 | 동작 | 자원 | 주체 | 조건 | 맞음
+  scp:FullAWSAccess | AllowAll | Allow | O | O | O | 조건 없음 | ★
+  scp:DenyBedrockApiKeys(추정) | DenyApiKeys | Deny | O | O | O | 조건 없음 | ★
+  scp:DenyBedrockApiKeys(추정) | DenyUseCaseForm | Deny | X | O | O | — |
+  identity:AccountFullAccess(추정) | All | Allow | O | O | O | 조건 없음 | ★
+  1. 명시적 거부: scp:DenyBedrockApiKeys(추정)의 DenyApiKeys
+  → 거부 (명시적)
+```
+
+허용 문장 둘(★)이 맞아도, 거부 문장 하나가 맞으면 거기서 끝납니다. `FullAWSAccess`는 조직을 만들면 기본으로 붙는 "모두 허용" SCP입니다. SCP는 권한을 주지 않으므로, 이것이 없으면 SCP 단계에서 모든 요청이 막힙니다.
+
+**평가 순서를 따라갑니다.** 장난감은 AWS 문서의 "같은 계정 안의 요청" 흐름을 줄인 것입니다. 위 "평가 순서" 목록의 2~5단계를, 자원 기반 정책과 세션 정책까지 나눠 번호를 다시 매겼습니다(1의 기본 거부는 "아니면" 칸에 들어감).
+
+| 단계 | 묻는 것 | 아니면 |
+| --- | --- | --- |
+| 1 | 어느 정책이든 **맞는 Deny**가 있나 | 있으면 **명시적 거부**, 끝 |
+| 2 | (조직에 속한 멤버 계정이면) **SCP에 맞는 Allow**가 있나 | 없으면 기본 거부 |
+| 3 | 자원 기반 정책(신뢰 정책 포함)에 맞는 Allow가 있나 | 같은 계정 안에서는 여기서 허용될 수 있음. 없으면 다음으로 |
+| 4 | **신원 기반 정책에 맞는 Allow**가 있나 | 없으면 기본 거부 |
+| 5 | 권한 경계가 있으면, 거기에도 Allow가 있나 | 없으면 기본 거부 |
+| 6 | 세션 정책이 있으면, 거기에도 Allow가 있나 | 없으면 기본 거부 |
+| — | 모두 지나면 | **허용** |
+
+SCP의 "상한"은 2단계입니다. 실제 조직에서는 루트·조직 단위(OU)·계정의 **각 층마다** SCP에 허용이 있어야 아래로 내려갑니다(AWS Organizations 문서). 관리 계정에는 이 단계가 아예 없습니다. 같은 스크립트로 이번 거절과 16-5절의 운영 정책을 돌린 결과입니다.
+
+| 요청 | 결과 | 멈춘 단계 |
+| --- | --- | --- |
+| #4 콘솔 역할 세션의 API 키 호출 | 거부 (명시적) | 1. SCP의 Deny |
+| #6 작업 계정에서 양식 제출 `bedrock:PutUseCaseForModelAccess` | 거부 (명시적) | 1. SCP의 Deny |
+| #6 관리 계정에서 같은 제출 | **허용** | 2단계 없음 → 4. 신원 기반 허용 |
+| 운영 정책, `jp.` 프로필 ARN | 허용 | 4. 첫 문장 |
+| 운영 정책, 프로필이 오사카 기본 모델로 보낸 요청 (`bedrock:InferenceProfileArn` = `jp.` 프로필) | 허용 | 4. 둘째 문장(조건 맞음) |
+| 운영 정책, 프로필 없이 도쿄 기본 모델 직접 | 거부 (기본) | 4. 둘째 문장의 조건 키가 요청에 없음 |
+| 운영 정책, `global.` 프로필 | 거부 (기본) | 4. 맞는 자원 없음 |
+| 운영 정책 + "도쿄만" 권한 경계, 오사카로 간 요청 | **거부 (기본)** | 5. 권한 경계 밖 |
+
+마지막 줄이 교집합의 함정입니다. 신원 정책은 오사카를 허용했지만, 권한 경계를 `arn:aws:bedrock:ap-northeast-1:*`로 좁혀 두면 `jp.` 프로필이 오사카로 보낸 요청만 골라 실패합니다. 요청이 어느 리전으로 갈지는 AWS가 정하므로 **같은 호출이 가끔만 실패**하는 모양이 됩니다(장난감 평가기로 본 것, 실제 계정에서는 확인하지 않음).
+
+이 장난감은 AWS 실제 평가기의 단순화입니다. `NotAction`·`NotResource`, `…IfExists`를 포함한 대부분의 조건 연산자, 정책 변수(`${aws:username}`), 다른 계정 사이의 요청, 자원 제어 정책(RCP), 역할 세션과 자원 기반 정책 사이의 세부 규칙은 다루지 않습니다.
+
+**신뢰 정책도 같은 기계로 평가합니다.** 16-9절의 연동에서 AWS 역할의 신뢰 정책은 "구글이 서명한 이 서비스 계정의 토큰만 이 역할을 맡을 수 있다"를 조건으로 적습니다. 장난감은 그것을 3단계(자원 기반 정책)로 평가합니다. 웹 ID 연동에는 호출하는 쪽 AWS 신원이 없으므로 신뢰 정책 하나가 문을 정합니다.
+
+```text
+  우리 서비스 계정, audience sts.amazonaws.com → 허용
+  같은 프로젝트의 다른 서비스 계정                 → 거부 (기본)
+  우리 서비스 계정이지만 다른 audience로 받은 토큰    → 거부 (기본)
+  조건 없는 신뢰 정책 + 남의 서비스 계정 → 허용
+```
+
+마지막 줄이 신뢰 정책에서 가장 위험한 실수입니다. `Principal`에 `accounts.google.com`만 적고 조건을 빼면, 구글 계정을 가진 세상의 누구나(어떤 프로젝트의 서비스 계정이든) 그 역할을 맡을 수 있습니다. 조건 키의 뜻은 16-9절 깊이 보기에 있습니다.
+
+**직접 해 볼 수 있는 것(안내만, 이 장에서는 실행하지 않음).** 아래 세 가지는 AWS CLI로 부를 수 있는 무료 API이고, 자원을 바꾸지 않고 읽기만 합니다. 실제 계정에서 돌리므로 출력의 계정 ID·ARN을 공개 저장소에 붙이지 않습니다.
+
+| 명령 | 알려 주는 것 | 이번에 쓸 곳 |
+| --- | --- | --- |
+| `aws sts get-caller-identity` | 지금 자격 증명이 **누구**인가(계정, ARN) | 16-1절 "누가"의 확인. 16-4절의 순서 뒤집기(`AWS_PROFILE`)가 의심될 때 |
+| `aws iam simulate-principal-policy --policy-source-arn <사용자·역할 ARN> --action-names bedrock:InvokeModelWithResponseStream --resource-arns <자원 ARN> --context-entries …` | 그 신원의 정책으로 이 요청이 허용되는가, 어느 문장이 맞았나 | 운영 정책을 붙이기 전에 위 표의 여덟 줄을 실제 평가기로 다시 확인. SCP·권한 경계가 결과에 어떻게 들어가는지는 시뮬레이터 문서를 보고 판단(확인 필요) |
+| `aws sts decode-authorization-message --encoded-message <…>` | 일부 서비스가 거절할 때 주는 암호화된 사유를 풀어 줌 | 거절 메시지에 `Encoded authorization failure message`가 붙어 올 때. Bedrock의 #4는 평문으로 사유를 줬음 |
 
 ---
 
@@ -291,17 +620,107 @@ IAM 정책은 JSON 문서이고, 규칙(statement) 하나는 이렇게 읽습니
 | | bedrock-runtime | Mantle |
 | --- | --- | --- |
 | 주소 | `bedrock-runtime.<리전>.amazonaws.com` | `bedrock-mantle.<리전>.api.aws` |
-| 요청 모양 | Bedrock 고유: 모델이 경로에(`/model/{id}/invoke-with-response-stream`), 본문에 `anthropic_version: "bedrock-2023-05-31"` | OpenAI 호환(`/v1`), Anthropic 호환(`/anthropic/v1/messages`) |
+| 요청 모양 | Bedrock 고유: 모델이 경로에(`/model/{id}/invoke-with-response-stream`), 본문에 `anthropic_version`. (2026-11-06 갱신) AWS 문서의 값은 `bedrock-2023-05-31`이지만, 이 레포의 SDK(1.4.0)는 `"2026-10-21"`을 넣음(16-3절 깊이 보기) | OpenAI 호환(`/v1`), Anthropic 호환(`/anthropic/v1/messages`) |
 | 스트리밍 | AWS 이진 이벤트 스트림 | 원래 API 형식 |
 | API 키 동작 이름 | `bedrock:CallWithBearerToken` | `bedrock-mantle:CallWithBearerToken` |
 | 도쿄의 Haiku 5.5 (2026-11-05) | 있음 (`jp.`·`global.`) | 없음 (Haiku 4.5, Opus 4.7, Opus 4.8만) |
 
 Bedrock SDK는 bedrock-runtime의 차이를 감춰 줍니다(`client.js`, `core/streaming.js`).
 
-- Anthropic Messages API 모양의 요청에서 `model`·`stream`을 빼 경로로 옮기고, `anthropic_version`을 본문에 넣습니다.
+- Anthropic Messages API 모양의 요청에서 `model`·`stream`을 빼 경로로 옮기고, `anthropic_version`을 본문에 넣습니다. (2026-11-06 갱신) 넣는 값은 따로 정한 것이 아니라 Anthropic SDK가 붙인 `anthropic-version` 머리글 값을 옮긴 것입니다(`client.js` 189~200). 본문의 나머지 칸(`thinking`, `output_config.effort`, 최상위 `cache_control`)은 그대로 갑니다. 최상위 `cache_control`(자동 캐시)은 Anthropic 문서상 Bedrock에서도 지원되지만(8-8절), Haiku 5.5가 이 계정에 아직 열리지 않아(#7, 2026-11-05 다시 확인해도 모델 사용 자격 403) 실제 응답으로는 확인하지 못했습니다.
 - 응답의 AWS 이진 이벤트 스트림을 Anthropic API와 같은 SSE로 바꿔 돌려줍니다. 그래서 8-6절의 SSE를 기대하는 플러그인 코드가 그대로 동작합니다.
 
-플러그인에 이 클라이언트를 끼우는 방법과 그 대가(타입 강제 변환)는 Bedrock 작업이 끝난 뒤 8장에 정리합니다.
+플러그인에 이 클라이언트를 끼우는 방법과 그 대가(타입 강제 변환)는 (2026-11-06 갱신) 8-8절 "응용: 연결만 바꿔 끼우기"에 있습니다.
+
+#### 깊이 보기: bedrock-runtime 응답을 바이트로 읽기 (2026-11-06 추가)
+
+Anthropic API의 스트리밍 응답은 빈 줄로 이벤트를 나누는 SSE 텍스트입니다(8-6절). bedrock-runtime은 `content-type: application/vnd.amazon.eventstream`으로 **길이를 앞에 적은 이진 프레임**을 보냅니다. AWS의 여러 스트리밍 API가 함께 쓰는 "event stream" 인코딩입니다. [lab/16-eventstream.mjs](lab/16-eventstream.mjs)는 SDK가 실제로 쓰는 코덱(`@smithy/eventstream-codec` 2.2.0)으로 Anthropic 이벤트 하나를 담은 프레임을 만들고, 손으로 쪼개고, CRC를 다시 계산하고, 그 바이트를 Bedrock SDK에 먹여 봅니다. 프레임의 머리글 순서와 본문 모양은 SDK의 해석 코드가 받는 모양으로 만든 것이라, 실제 Bedrock 응답의 바이트와 순서까지 같다는 보장은 없습니다.
+
+**프레임 하나의 hexdump.** 담은 것은 `{"type":"content_block_delta",…,"text":"네, 안녕하세요."}`(101바이트)입니다.
+
+```text
+0000  00 00 00 ef 00 00 00 4b 2e a8 17 7f 0b 3a 65 76  .......K.....:ev
+0010  65 6e 74 2d 74 79 70 65 07 00 05 63 68 75 6e 6b  ent-type...chunk
+0020  0d 3a 63 6f 6e 74 65 6e 74 2d 74 79 70 65 07 00  .:content-type..
+0030  10 61 70 70 6c 69 63 61 74 69 6f 6e 2f 6a 73 6f  .application/jso
+0040  6e 0d 3a 6d 65 73 73 61 67 65 2d 74 79 70 65 07  n.:message-type.
+0050  00 05 65 76 65 6e 74 7b 22 62 79 74 65 73 22 3a  ..event{"bytes":
+0060  22 65 79 4a 30 65 58 42 6c 49 6a 6f 69 59 32 39  "eyJ0eXBlIjoiY29
+…
+00e0  61 6c 43 34 69 66 58 30 3d 22 7d 49 fb ff 47     alC4ifX0="}I..G
+```
+
+| 바이트 | 칸 | 값 | 읽는 법 |
+| --- | --- | --- | --- |
+| 0~3 | 전체 길이 | `00 00 00 ef` = 239 | 큰 끝(big-endian) 32비트. 이 프레임 전체(이 칸 포함) |
+| 4~7 | 머리글 길이 | `00 00 00 4b` = 75 | 머리글 덩어리의 바이트 수 |
+| 8~11 | 앞부분 CRC32 | `2e a8 17 7f` | 0~7바이트(두 길이 칸)의 CRC |
+| 12~31 | 머리글 1 | `0b` `:event-type` `07` `00 05` `chunk` | 이름 길이 1B, 이름, 값 종류 1B(7 = 문자열), 값 길이 2B, 값 → 1 + 11 + 1 + 2 + 5 = 20B |
+| 32~64 | 머리글 2 | `:content-type` = `application/json` | 1 + 13 + 1 + 2 + 16 = 33B |
+| 65~86 | 머리글 3 | `:message-type` = `event` | 1 + 13 + 1 + 2 + 5 = 22B |
+| 87~234 | 본문 148B | `{"bytes":"eyJ0eXBl…"}` | Anthropic 이벤트 JSON의 **base64**를 다시 JSON으로 감쌈 |
+| 235~238 | 메시지 CRC32 | `49 fb ff 47` | 0~234바이트 **전체**의 CRC. 앞부분 CRC 칸도 포함 |
+
+길이 손 계산은 **12(앞부분) + 머리글 + 본문 + 4(메시지 CRC)** 입니다. 12 + 75 + 148 + 4 = 239가 첫 4바이트의 값과 맞습니다. 이 레포의 SDK는 본문에서 `bytes` 칸만 꺼냅니다(`node_modules/@anthropic-ai/bedrock-sdk/AWS_restJson1.js` 198~205 `de_PayloadPart`). 짧은 글 조각 하나가 101B → base64 136B → JSON 148B → 프레임 239B로 2.4배쯤 커지지만, 한 조각이 수백 바이트라 지연에는 사실상 영향이 없습니다(계산).
+
+**CRC32를 손으로.** CRC-32는 zip·이더넷과 같은 IEEE 판입니다(코덱이 `@aws-crypto/crc32`를 씀). 표 없이 비트 단위로 계산해도 같은 값이 나옵니다.
+
+```js
+let crc = 0xffffffff;
+for (const byte of bytes) {
+  crc ^= byte;
+  for (let bit = 0; bit < 8; bit++) crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
+}
+return (crc ^ 0xffffffff) >>> 0;
+```
+
+```text
+앞부분: 프레임 0x2ea8177f / 손 계산 0x2ea8177f / zlib 0x2ea8177f
+메시지: 프레임 0x49fbff47 / 손 계산 0x49fbff47 / zlib 0x49fbff47
+CRC32("123456789") = 0xcbf43926 (표준 검사값 0xcbf43926)
+```
+
+- **CRC가 둘인 이유(설명).** 받는 쪽은 첫 4바이트의 길이를 믿고 그만큼 기다립니다. 길이 칸이 깨지면 엉뚱한 양을 기다리게 되므로, 앞부분 CRC로 길이부터 확인하고 나머지를 읽습니다. 코덱도 앞부분 CRC를 먼저, 메시지 CRC를 그다음에 확인합니다(`@smithy/eventstream-codec` 2.2.0 `dist-cjs/index.js` 269~302 `splitMessage`).
+- **CRC는 보안 장치가 아닙니다.** 키가 없어서 내용을 바꾼 사람이 CRC도 다시 계산해 넣으면 그만입니다. 실수로 깨진 바이트를 잡을 뿐이고, 일부러 바꾸는 것을 막는 일은 TLS가 합니다. 16-3절의 HMAC(키가 있어야 같은 값을 만듦)과 비교하면 차이가 분명합니다.
+
+**SDK가 SSE로 바꾸는 곳.** 바꿀지는 `client.js`가 응답의 `content-type`이 `application/vnd.amazon.eventstream`을 **포함할 때만** 정하고(253~262 `adaptResponse`. 일반 JSON·오류 본문·이미 SSE인 응답은 그대로 둠), 바꾸는 일은 `core/streaming.js`의 `eventStreamToSSEResponse`(58~104)가 합니다.
+
+1. 프레임을 풀어 `chunk` 이벤트의 `bytes`를 꺼내 JSON으로 읽고, 그 안의 `type`을 SSE 이벤트 이름으로 씁니다. JSON은 한 줄이 되도록 다시 직렬화합니다(75~80). `type`이 없는 프레임(관문의 연결 유지 신호 등)은 버립니다.
+2. `event: <type>\ndata: <json>\n\n`을 하나씩 내보냅니다.
+3. `exception`·`error` 프레임은 SSE `error` 이벤트로 바꿉니다(84~90, 110~122).
+4. 응답의 `content-type`을 `text/event-stream; charset=utf-8`로 바꾸고 `content-length`를 지웁니다(92~94).
+
+실습 4번은 프레임 6개(1,298바이트)를 일부러 **7바이트씩** 잘라서 `fetch` 응답으로 돌려줍니다. 프레임 경계와 상관없이 잘라도 SDK가 내놓는 SSE 원문은 Anthropic API의 것과 같은 모양입니다.
+
+```text
+event: message_start
+data: {"type":"message_start","message":{"id":"msg_fake",…}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"네, 안녕하세요."}}
+…
+event: message_stop
+data: {"type":"message_stop"}
+```
+
+**길이 접두의 이점.** 받는 쪽은 처음 4바이트를 모으면 프레임 길이를 알고, 그만큼 모이는 순간 바로 내보냅니다(`@smithy/eventstream-serde-universal` 2.2.0 `dist-cjs/index.js`의 `getChunkedStream`). SSE처럼 "빈 줄이 왔나"를 찾지 않으므로, 8-6절의 #36(이벤트 끝을 다음 바이트가 올 때까지 붙잡음) 같은 문제가 생길 자리가 없습니다. 바꾼 SSE는 Bedrock SDK 밑의 SDK 1.4가 읽는데, 1.4는 #36이 고쳐진 판입니다(8-6절). 그래서 Bedrock 경로에는 #36의 지연이 없을 것으로 봅니다(코드로 추론).
+
+**깨진 바이트와 오류 프레임(실습 5번).**
+
+```text
+비트 하나 뒤집기 → Error: The message checksum (1659860720) did not match the expected value of 3605960512
+exception 프레임 → SSE:
+  event: error
+  data: {"type":"error","error":{"type":"throttlingException","message":"Too many requests, please wait before trying again."}}
+SDK 이벤트로 읽으면 → APIError (status undefined): {"type":"error","error":{"type":"throttlingException",…
+```
+
+- 본문 비트 하나를 뒤집으면 메시지 CRC가 맞지 않아 평범한 `Error`가 스트림 중간에 던져집니다.
+- 서버가 스트림 중간에 보내는 `exception` 프레임(`:message-type: exception`, `:exception-type: throttlingException` 등. SDK가 아는 종류는 `AWS_restJson1.js` 109~149)은 SSE `error` 이벤트가 되고, SDK 1.4는 이것을 상태 코드 없는 `APIError`로 던집니다.
+- 플러그인을 거치면 두 경우 모두 SDK 0.33의 오류 클래스가 아니므로 `APIConnectionError`가 되고, 글이 하나도 나가기 전이면 재시도 대상입니다(16-1절의 #37 경로, 코드로 추론. 플러그인을 거쳐 재현하지는 않음). 8-7절 표에서 Anthropic 경로의 "200 + `error` 이벤트, 글 전"은 재시도하지 않았으므로, **같은 과부하가 스트림 중간에 와도 두 경로가 다르게 반응**하는 셈입니다.
 
 ---
 
@@ -319,9 +738,13 @@ functions-xtool(통화 결과 저장·판정, 15-6절)은 Firebase, 즉 GCP 프�
 
 AWS와 가장 다른 점은 **"역할"이라는 단어**입니다. AWS의 역할은 맡을 수 있는 신원이고, GCP의 역할은 권한 묶음입니다. GCP에서 AWS 역할에 해당하는 것은 서비스 계정입니다.
 
+(2026-11-06 추가) 표의 오른쪽 칸 **서비스 연결 역할**(service-linked role)은 AWS 서비스가 내 계정 안에서 일하려고 쓰는, 그 서비스에 묶인 미리 정해진 역할입니다. 신뢰 정책이 그 서비스만 맡을 수 있게 고정돼 있고, 사용자가 권한을 마음대로 바꿀 수 없습니다. "구글 서비스가 내 프로젝트에서 쓰는 신원"인 서비스 에이전트와 하는 일이 비슷합니다.
+
 ### 사례: 판정 트리거의 첫 배포 실패 (2026-11-03)
 
 `extractVoiceCallJudgment`는 Firestore 문서가 생기면 도는 2세대 함수입니다. 2세대 Firestore 트리거는 **Eventarc**라는 이벤트 전달 서비스를 거칩니다.
+
+(2026-11-06 추가) 세 이름입니다. **Cloud Run**은 컨테이너를 요청이 올 때 띄워 실행하는 구글의 서버리스 실행 환경입니다. **2세대 함수**(Cloud Functions 2nd gen, Firebase Functions v2)는 함수 코드를 구글이 컨테이너로 만들어 Cloud Run 위에서 돌리는 방식이고, 1세대는 별도 실행 환경이었습니다. **Eventarc**는 구글 서비스에서 생긴 사건(Firestore 문서 생성 등)을 받아 정해진 대상(여기서는 Cloud Run 위의 함수)으로 전달하는 서비스입니다. 그 전달을 구글 쪽 신원인 Eventarc 서비스 에이전트가 하므로, 이 신원의 권한이 준비되지 않으면 내 코드와 상관없이 배포가 실패합니다.
 
 ```text
 Firestore 문서 생성 → Eventarc(서비스 에이전트가 이벤트를 받아 전달) → Cloud Run 위의 함수
@@ -360,7 +783,7 @@ AWS의 #7과 GCP의 트리거 실패는 같은 현상입니다. **권한·신원
 - **변경 직후의 실패 한 번으로 결론을 내지 않습니다.** 같은 요청을 간격을 두고 다시 보내 봅니다. 다른 작업이 45초마다 다시 부른 것이 이 방식입니다.
 - **기다림에는 끝을 정합니다.** 문서에 적힌 전파 시간(예: 15분)을 넘겨도 그대로면 전파가 아니라 다른 원인을 의심하고, 조건을 하나만 바꾼 비교로 층을 다시 가릅니다. #7에서 모델만 바꿔 본 것이 그 예입니다(16-1절).
 - **다시 시도할 때는 무엇이 바뀌었는지 응답 본문을 비교합니다.** 403의 문구가 #4에서 #5로 바뀐 것처럼, 같은 숫자 안에서 층이 넘어가는 것이 진전입니다.
-- **배포 자동화에는 재시도를 넣습니다.** 사람이 기다렸다 다시 누르는 일을 스크립트가 지수 백오프로 대신합니다.
+- **배포 자동화에는 재시도를 넣습니다.** 사람이 기다렸다 다시 누르는 일을 스크립트가 지수 백오프로 대신합니다. (2026-11-06 추가) **지수 백오프**는 실패할 때마다 기다림을 두 배씩 늘리는 재시도 방식이고(예: 0.5초, 1초, 2초, … 상한까지), **지터**는 그 기다림에 작은 무작위 값을 섞는 것입니다. 지터가 없으면 같은 때 실패한 많은 클라이언트가 같은 박자로 다시 몰려 서버를 또 막습니다. Bedrock SDK 밑의 Anthropic SDK 1.4는 0.5초 × 2^n(최대 8초)에 최대 25%를 줄이는 지터를 씁니다(`@anthropic-ai/sdk` 1.4.0 `client.js` 905~914). 오디오의 지터(도착 간격의 흔들림, 2장)와 같은 단어이지만 다른 뜻입니다.
 
 ---
 
@@ -383,17 +806,112 @@ IAM 사용자 액세스 키는 지울 때까지 사는 장기 자격 증명이�
   - 키 교체 주기
   - 예산 알림
   - 다만 LiveKit Cloud 에이전트 리전(미국·유럽·뭄바이)에서는 도쿄 Bedrock의 이점이 줄어듭니다(13-5절).
-- **GKE 서울에 올리면:** 키 없이 연동하는 방법이 있습니다(**워크로드 아이덴티티 연동**).
-  1. 파드가 GCP 서비스 계정의 신원으로 구글이 서명한 ID 토큰을 받습니다.
-  2. AWS STS의 `AssumeRoleWithWebIdentity`에 그 토큰을 내고 AWS 역할의 **임시 자격 증명**을 받습니다.
-  3. 16-4절 체인의 "웹 ID 토큰" 단계가 이것을 자동으로 처리합니다.
-  4. 장기 키가 아예 없으므로 샐 것도 없습니다.
+- **GKE 서울에 올리면:** 키 없이 연동하는 방법이 있습니다(**워크로드 아이덴티티 연동**). (2026-11-06 갱신) 지난 판은 1단계(토큰을 받음)에서 3단계(체인이 자동 처리)로 바로 건너뛰었는데, 둘 사이에 빠진 고리가 있어 고쳤습니다.
+  1. 파드가 **구글이 서명한 ID 토큰**을 받습니다. 메타데이터 서버의 `identity` 엔드포인트에 받을 쪽(`audience=sts.amazonaws.com` 등)을 적어 요청하면 JWT 문자열이 **응답 본문으로** 옵니다. 파일이 저절로 생기지는 않습니다.
+  2. AWS STS의 `AssumeRoleWithWebIdentity`에 그 토큰과 역할 ARN을 내고 AWS 역할의 **임시 자격 증명**을 받습니다. 이 호출은 서명하지 않습니다. 토큰 자체가 증명입니다.
+  3. 16-4절 체인의 "웹 ID 토큰" 단계(`fromTokenFile`)는 **`AWS_WEB_IDENTITY_TOKEN_FILE`이 가리키는 파일**과 `AWS_ROLE_ARN`을 읽어 2단계를 대신합니다(`@aws-sdk/credential-provider-web-identity` `dist-cjs/index.js` 34~56). 그러니 체인이 자동으로 처리하게 하려면 1단계의 토큰을 **파일로 써 주는 장치**가 하나 더 있어야 합니다. 방법은 아래 깊이 보기에 셋 있습니다.
+  4. 장기 키가 아예 없으므로 샐 것도 없습니다. 대신 16-4절 깊이 보기의 "요청마다 STS를 부르는" 문제를 함께 풀어야 합니다.
 
   선택지로만 조사했고, 구현은 하지 않았습니다(확인 필요).
 
+#### 깊이 보기: 워크로드 아이덴티티 연동의 실제 (2026-11-06 추가)
+
+**이름 정리.** GKE의 기능 이름 "Workload Identity Federation for GKE"는 파드가 **구글** API를 부를 때 쿠버네티스 신원을 구글 신원으로 잇는 장치입니다. 여기서 하려는 일은 그렇게 얻은 구글 신원을 한 번 더 **AWS** 역할에 잇는 것이라, 연동이 두 단계 이어진 모양입니다.
+
+**OIDC, ID 토큰, audience.** OIDC(OpenID Connect)는 "이 토큰의 주인이 누구인지"를 JWT로 증명하는 표준입니다. 발급자(issuer)가 서명한 그 JWT를 **ID 토큰**이라 하고, 받는 쪽은 발급자가 공개한 공개 키 목록(JWKS)으로 서명을 확인합니다. 3-7절의 LiveKit 토큰은 HS256(같은 비밀을 양쪽이 나눠 가짐)이었지만, 구글 ID 토큰은 RS256(구글만 개인 키를 갖고 누구나 공개 키로 확인)이라 AWS와 구글이 비밀을 나눠 가질 필요가 없습니다. **audience**(`aud`)는 "이 토큰을 누구에게 내라고 만들었나"입니다. 받는 쪽이 자기 이름이 아닌 토큰을 거절해야, 다른 서비스에 내려고 받은 토큰을 누가 들고 와도 통하지 않습니다.
+
+**토큰의 모양.** 메타데이터 서버에 `GET http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience=sts.amazonaws.com&format=full`(머리글 `Metadata-Flavor: Google`)을 보내면 JWT 문자열이 옵니다. 3-7절처럼 가운데 부분을 base64url로 풀면 대략 이런 모양입니다(구글 문서와 흔히 보이는 모양을 따른 예이고, 이 프로젝트에서 받아 본 토큰이 아닙니다. 값은 지어냄).
+
+```json
+{
+  "iss": "https://accounts.google.com",
+  "aud": "sts.amazonaws.com",
+  "azp": "100000000000000000001",
+  "sub": "100000000000000000001",
+  "email": "voice-agent@<프로젝트 ID>.iam.gserviceaccount.com",
+  "email_verified": true,
+  "iat": 1793905200,
+  "exp": 1793908800
+}
+```
+
+| 칸 | 뜻 | AWS 신뢰 정책에서 |
+| --- | --- | --- |
+| `iss` | 발급자, 구글 | `"Principal": { "Federated": "accounts.google.com" }`. IAM 문서의 예시는 구글을 이 이름으로 바로 씀 |
+| `aud` | 1단계에서 적은 audience | `azp`가 있으면 조건 키 `accounts.google.com:oaud`가 이 값 |
+| `azp` | 토큰을 받은 쪽(서비스 계정)의 고유 ID, 21자리 숫자 | `azp`가 있으면 조건 키 `accounts.google.com:aud`가 **이 값**(IAM 문서). 이름은 aud인데 비교 대상은 azp라 헷갈리기 쉬움 |
+| `sub` | 서비스 계정의 고유 ID | `accounts.google.com:sub` |
+| `exp − iat` | 3,600초 | 토큰은 1시간짜리. 파일로 써 주는 장치는 그 안에 갱신해야 함 |
+
+서비스 계정이 받은 토큰에 `azp`가 늘 있는지는 확인하지 못했습니다. `azp`가 없으면 `accounts.google.com:aud`와 `oaud`가 둘 다 `aud` 값이 되므로(IAM 문서), 조건 값은 실제 토큰을 한 번 풀어 보고 정합니다.
+
+**신뢰 정책.** 위 토큰을 낸 그 서비스 계정만 이 역할을 맡게 하는 모양입니다(예시, 적용하지 않음).
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "Federated": "accounts.google.com" },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "accounts.google.com:aud": "<서비스 계정 고유 ID>",
+          "accounts.google.com:oaud": "sts.amazonaws.com",
+          "accounts.google.com:sub": "<서비스 계정 고유 ID>"
+        }
+      }
+    }
+  ]
+}
+```
+
+조건을 빼면 구글 계정을 가진 누구나 이 역할을 맡을 수 있습니다(16-5절 깊이 보기의 마지막 줄). 이 역할의 **권한**(신원 기반 정책)에는 16-5절의 최소 권한 정책을 붙입니다.
+
+**`AssumeRoleWithWebIdentity`의 요청과 응답.** [lab/16-credential-chain.mjs](lab/16-credential-chain.mjs) 2번의 가짜 STS가 받은 요청과, AWS STS 문서의 응답 모양을 따라 돌려준 값입니다.
+
+```text
+POST /   (content-type: application/x-www-form-urlencoded, Authorization 머리글 없음)
+Action=AssumeRoleWithWebIdentity&Version=2011-06-15&RoleArn=arn:aws:iam::123456789012:role/gke-bedrock-role&RoleSessionName=voice-agent-pod&WebIdentityToken=<토큰 파일 내용>
+```
+
+```xml
+<AssumeRoleWithWebIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
+  <AssumeRoleWithWebIdentityResult>
+    <SubjectFromWebIdentityToken>100000000000000000001</SubjectFromWebIdentityToken>
+    <Audience>sts.amazonaws.com</Audience>
+    <Provider>accounts.google.com</Provider>
+    <AssumedRoleUser>
+      <Arn>arn:aws:sts::123456789012:assumed-role/gke-bedrock-role/voice-agent-pod</Arn>
+      <AssumedRoleId>AROAEXAMPLEEXAMPLE001:voice-agent-pod</AssumedRoleId>
+    </AssumedRoleUser>
+    <Credentials>
+      <AccessKeyId>ASIAEXAMPLEEXAMPLE00</AccessKeyId>
+      <SecretAccessKey>…</SecretAccessKey>
+      <SessionToken>…</SessionToken>
+      <Expiration>…</Expiration>
+    </Credentials>
+  </AssumeRoleWithWebIdentityResult>
+</AssumeRoleWithWebIdentityResponse>
+```
+
+- 받은 `ASIA…` 키·비밀 키·세션 토큰은 16-3절 표의 "STS 임시 자격 증명"입니다. 워커는 이것으로 Bedrock 요청을 SigV4 서명하고, 세션 토큰은 `x-amz-security-token` 머리글로 실어 함께 서명합니다(`@smithy/signature-v4` `signRequest`가 서명 전에 이 머리글을 넣음).
+- 그 뒤의 거절 메시지에서 "누가"는 `assumed-role/gke-bedrock-role/voice-agent-pod`로 찍힙니다. 16-1절의 콘솔 역할 세션과 같은 모양입니다.
+
+**토큰을 파일로 만드는 세 가지 방법**(조사, 구현하지 않음).
+
+| 방법 | 하는 일 | 확인 수준 |
+| --- | --- | --- |
+| (가) 코드에서 직접 | 메타데이터 서버에서 ID 토큰을 받아 `fromWebToken({ roleArn, webIdentityToken })`(같은 패키지)을 부르는 공급자를 만들고, 16-4절처럼 한 번만 만들어 기억하게 해서 `providerChainResolver`로 넘김. 파일이 필요 없음 | SDK 쪽 함수는 코드로 확인. 토큰이 1시간 뒤 바뀌므로 자격 증명을 새로 받을 때마다 토큰도 새로 받아야 함 |
+| (나) 토큰을 파일로 써 주는 곁 컨테이너 | 같은 파드의 작은 컨테이너가 ID 토큰을 받아 공유 볼륨의 파일에 쓰고 1시간 안에 갱신. 워커에는 `AWS_WEB_IDENTITY_TOKEN_FILE`·`AWS_ROLE_ARN`만 줌 | 체인이 파일을 부를 때마다 다시 읽으므로 갱신을 따라감(코드로 확인). 곁 컨테이너는 직접 만들어야 함 |
+| (다) 쿠버네티스 서비스 계정 토큰 + 클러스터 발급자 등록 | 쿠버네티스가 파드에 파일로 넣고 스스로 갱신하는 **투영된 서비스 계정 토큰**(projected service account token, audience를 `sts.amazonaws.com`으로 지정)을 쓰고, 클러스터의 OIDC 발급자를 AWS IAM에 OIDC 공급자로 등록. EKS의 IRSA와 같은 모양이라 체인이 그대로 처리 | 토큰의 `sub`는 `system:serviceaccount:<네임스페이스>:<이름>` 모양. GKE 클러스터 발급자의 공개 키를 AWS가 조회할 수 있는지는 확인 필요 |
+
+(가)와 (나)는 GKE 메타데이터 서버가 파드에 구글 ID 토큰을 내줘야 성립합니다. 쿠버네티스 서비스 계정을 IAM 서비스 계정에 연결해 두는 설정이 필요한 것으로 보이며, 연결 없이도 되는지는 문서에서 확인하지 못했습니다(확인 필요).
+
 ### 키 위생
 
-- 키 값은 대화, 스크린샷, 이슈에 붙이지 않습니다. 이번에 시드니 단기 키 일부가 스크린샷에 찍혔지만, 서명이 키 뒷부분에 있고 12시간 안에 만료되는 키라 위험이 낮았습니다. 장기 키였다면 바로 비활성화하고 새로 만들었어야 합니다.
+- 키 값은 대화, 스크린샷, 이슈에 붙이지 않습니다. 이번에 시드니 단기 키 일부가 스크린샷에 찍혔지만, 서명이 키 뒷부분에 있고 12시간 안에 만료되는 키라 위험이 낮았습니다. 장기 키였다면 바로 비활성화하고 새로 만들었어야 합니다. (2026-11-06 추가) 16-3절 깊이 보기에서 푼 순서대로, base64는 원문을 앞에서부터 차례로 바꾸므로 토큰 앞부분은 원문의 `bedrock.amazonaws.com/?Action=…&X-Amz-Algorithm=…&X-Amz-Credential=<키 ID>/<날짜>/<리전>…`에 해당합니다. 쓰는 데 필요한 세션 토큰과 서명은 그 뒤에 있습니다. 다만 키 ID와 날짜·리전은 보였을 수 있습니다.
 - 키가 새면 순서는 **비활성화 → 새 키 발급·교체 → 옛 키 삭제**입니다. 먼저 지우면 운영이 멈춥니다.
 - 쓰지 않는 키는 `.env.local`에서 지웁니다. 남겨 둔 키는 16-4절처럼 다른 키보다 먼저 쓰일 수 있습니다. 다른 서비스 이름(`OPENAI_API_KEY`)으로 넣은 키도 헷갈림의 원인이라 정리합니다.
 - AWS는 유료 플랜으로 바꾸면 실수로 켠 다른 서비스도 과금되므로 **예산 알림**(Billing → Budgets, 예: 월 $10)을 겁니다. 15-8절의 "비용 폭탄"과 같은 이유입니다.
@@ -413,7 +931,19 @@ SDK       자격 증명 체인. Bedrock SDK는 AWS_BEARER_TOKEN_BEDROCK이 IAM �
 Bedrock   Anthropic 첫 사용 양식(관리 계정에서 한 번), jp.(일본 안)·global.(어디든), runtime vs Mantle
 GCP       역할 = 권한 묶음, 서비스 계정 = 프로그램 신원, 서비스 에이전트 = 구글 서비스의 신원
 운영      최소 권한, 장기 키 줄이기(연동), 쓰지 않는 키 지우기, 예산 알림, 변경 뒤에는 재시도
+
+서명 실물  정규 요청 19줄(서명 머리글 13개, user-agent 빠짐) → 서명할 문자열 4줄 → HMAC 네 번의 키 사슬 → 서명
+          범위 날짜는 UTC(한국 오전 9시 전은 어제), 서비스 이름은 bedrock, 경로는 한 번 더 인코딩(콜론 → %3A)
+          시각 창 약 5분. 창 안의 재전송은 서명만으로는 못 막음. retry-count가 서명돼 재시도마다 새 서명
+API 키    bedrock-api-key- + base64(미리 서명한 주소). 리전은 범위에만, 만료 12시간, 세션 토큰이 실림, 만들기는 계산뿐
+체인 실물  AWS_PROFILE이면 Node 기본 체인은 환경변수를 건너뜀(Bedrock SDK는 fromEnv를 앞에 둬 뒤집음)
+          체인을 요청마다 새로 만듦 → STS·IMDS로 바꾸면 매 요청 왕복. 한 번 만들어 providerChainResolver로
+평가 실물  (주체, 동작, 자원, 조건) → 거부 → SCP(층마다) → 자원 기반·신뢰 정책 → 신원 → 경계 → 세션. 교집합
+응답 바이트 event-stream: 12B(길이·길이·CRC) + 머리글 + {"bytes":base64} + CRC. SDK가 SSE로 바꿈. CRC는 보안 장치 아님
+연동 실물  구글 ID 토큰(iss·aud·azp·sub, 1시간) → 신뢰 정책 조건 → AssumeRoleWithWebIdentity. 체인은 토큰 "파일"을 읽음
 ```
+
+(2026-11-06 갱신) 위 블록에서 빈 줄 아래의 여섯 항목(서명 실물~연동 실물)은 이번에 더한 깊이 보기의 요약입니다.
 
 ---
 
@@ -428,6 +958,10 @@ GCP       역할 = 권한 묶음, 서비스 계정 = 프로그램 신원, 서비
 7. 지역형 추론 프로필 `jp.`로 부르는 에이전트에게 프로필 ARN만 허용하면 왜 부족합니까?
 8. GCP의 "역할"과 AWS의 "역할"은 어떻게 다릅니까? Eventarc 트리거 배포 실패에서 권한을 받아야 했던 신원은 무엇이었습니까?
 9. 사용 목적 양식을 낸 뒤에도 Haiku 5.5 호출은 전과 똑같은 403 문구를 받았습니다. "아직 전파 중"과 "이 모델만 따로 막힘"을 어떻게 가를 수 있습니까?
+10. (2026-11-06 추가, 손 계산) 한국 시각 2026-11-06 08:59:59에 도쿄 bedrock-runtime으로 가는 요청을 서명합니다. (가) 범위 문자열을 쓰세요. (나) 키 사슬 네 단계의 HMAC 키와 데이터를 순서대로 쓰세요. (다) 같은 시각에 SDK 재시도로 한 번 더 나가는 요청은 왜 서명이 달라집니까? 1초 뒤에 나간다면 무엇이 더 바뀝니까?
+11. (2026-11-06 추가) 단기 API 키를 base64로 풀었더니 `X-Amz-Credential=ASIA…/20261105/ap-southeast-2/bedrock/aws4_request`, `X-Amz-Date=20261105T040000Z`, `X-Amz-Expires=43200`, `X-Amz-Security-Token=…`이 있었습니다. (가) 한국 시각으로 언제까지 쓸 수 있고, 그보다 일찍 쓸모없어지는 경우는 언제입니까? (나) 이 키가 도쿄에서 거절된 이유를 이 칸들로 설명하세요. (다) 조직이 이 키의 "생성"을 막을 수 없는 이유는 무엇입니까?
+12. (2026-11-06 추가, 손 계산) event-stream 프레임에 머리글 `:event-type`=`chunk`, `:content-type`=`application/json`, `:message-type`=`event`가 있고 본문이 200바이트입니다. (가) 머리글 길이 칸과 전체 길이 칸의 값은 얼마입니까? (나) 앞부분 CRC와 메시지 CRC는 각각 몇 번째 바이트부터 몇 번째까지의 CRC입니까? (다) 본문의 비트 하나가 깨지면 어느 CRC가 잡습니까? 누가 일부러 본문을 바꾸고 CRC를 다시 계산해 넣으면 무엇이 막아 줍니까?
+13. (2026-11-06 추가) GKE로 옮기며 세 가지를 바꿨습니다. (가) 16-5절의 운영 정책에 권한 경계(`bedrock:Invoke*`, 자원 `arn:aws:bedrock:ap-northeast-1:*`)를 더했더니 `jp.` 호출이 가끔만 실패합니다. 평가 순서로 이유를 설명하세요. (나) 연동 역할의 신뢰 정책에서 `Condition`을 빼면 어떤 일이 생깁니까? (다) 연동으로 바꾼 뒤 매 턴 첫 토큰이 수십 ms 늦어졌습니다. 무엇을 의심하고 어떻게 고칩니까?
 
 <details>
 <summary>답 보기</summary>
@@ -441,5 +975,9 @@ GCP       역할 = 권한 묶음, 서비스 계정 = 프로그램 신원, 서비
 7. 지역형 프로필은 요청을 도쿄나 오사카의 기본 모델로 보냅니다. 그래서 그 두 리전의 기본 모델 ARN에 대한 허용도 필요합니다. 하나라도 빠지면 그 리전으로 간 요청이 거부됩니다.
 8. GCP의 역할은 권한 묶음이고(AWS의 정책에 가까움), AWS의 역할은 맡을 수 있는 신원입니다(GCP의 서비스 계정에 가까움). 권한을 받아야 했던 것은 Eventarc 서비스 에이전트(`service-<프로젝트 번호>@gcp-sa-eventarc.iam.gserviceaccount.com`)였습니다. 구글 서비스가 내 프로젝트 안에서 쓰는 신원입니다.
 9. 키·리전·창구를 그대로 두고 모델만 바꿔 부릅니다. 같은 Anthropic 모델인 Haiku 4.5·Sonnet 4.6이 응답하면, 양식은 처리됐고 계정 전체가 막힌 것도 아니므로 Haiku 5.5만의 제한입니다. 문서상 전파 시간을 넘겼는지도 함께 봅니다.
+10. (가) 한국 08:59:59는 UTC 2026-11-05 23:59:59이므로 `20261105/ap-northeast-1/bedrock/aws4_request`입니다. 서비스 칸은 호스트의 `bedrock-runtime`이 아니라 `bedrock`입니다. (나) kDate = HMAC("AWS4" + 비밀 키, "20261105") → kRegion = HMAC(kDate, "ap-northeast-1") → kService = HMAC(kRegion, "bedrock") → kSigning = HMAC(kService, "aws4_request"), 그리고 서명 = HMAC(kSigning, 서명할 문자열)의 hex입니다. (다) `x-stainless-retry-count`(0 → 1)가 서명된 머리글이라 정규 요청이 달라지고, 그 해시가 서명할 문자열의 넷째 줄이므로 서명이 달라집니다. 1초 뒤(한국 09:00:00, UTC 11-06 00:00:00)면 `x-amz-date`와 범위 날짜(`20261106`)까지 바뀌어 kDate부터 다시 계산됩니다.
+11. (가) 04:00Z + 43,200초 = 16:00Z, 한국 2026-11-06 01:00까지입니다. 세션 토큰이 실려 있으므로, 키를 만든 콘솔 역할 세션의 임시 자격 증명이 그보다 먼저 끝나면 그때 쓸모없어집니다(생성기 주석: 요청한 만료와 자격 증명 만료 중 짧은 쪽). (나) 토큰의 호스트 `bedrock.amazonaws.com`에는 리전이 없고, 리전은 서명 범위의 `ap-southeast-2`에만 있습니다. 도쿄 창구는 범위의 리전이 자기 리전과 달라 인증에서 거절합니다(#2). (다) 토큰은 비밀 키로 하는 HMAC 계산(미리 서명)만으로 만들어지고 AWS에 아무것도 묻지 않습니다. AWS가 끼어들 수 있는 때는 그 토큰을 쓸 때(`bedrock:CallWithBearerToken`)뿐입니다.
+12. (가) 머리글 하나 = 이름 길이 1 + 이름 + 값 종류 1 + 값 길이 2 + 값입니다. (1 + 11 + 1 + 2 + 5) + (1 + 13 + 1 + 2 + 16) + (1 + 13 + 1 + 2 + 5) = 20 + 33 + 22 = 75. 전체 = 12 + 75 + 200 + 4 = 291입니다. (나) 앞부분 CRC는 0~7바이트(두 길이 칸), 메시지 CRC는 0~286바이트(마지막 4바이트를 뺀 전부, 앞부분 CRC 칸 포함)의 CRC입니다. (다) 메시지 CRC가 잡습니다(앞부분 CRC는 길이 칸만 덮음). CRC에는 키가 없어 바꾼 사람이 다시 계산해 넣으면 통과하므로, 일부러 바꾸는 것은 TLS가 막습니다.
+13. (가) `jp.` 프로필은 도쿄·오사카 중 AWS가 고른 리전의 기본 모델로 요청을 보냅니다. 오사카로 간 요청의 자원은 `ap-northeast-3` 기본 모델 ARN이라, 신원 기반 정책은 허용하지만(16-5절 깊이 보기 표의 4단계) 권한 경계에 맞는 허용이 없어(5단계) 기본 거부됩니다. 최종 권한은 교집합이고, 어느 리전으로 갈지가 요청마다 달라 "가끔" 실패합니다. (나) 구글 계정을 가진 누구의 ID 토큰이든, 어느 프로젝트의 서비스 계정이든 이 역할을 맡을 수 있게 됩니다. `accounts.google.com:aud`(azp)·`sub`로 우리 서비스 계정 하나만 허용해야 합니다. (다) Bedrock SDK가 요청마다 자격 증명 체인을 새로 만들어, 웹 ID 토큰 방식에서는 매 요청 STS를 부릅니다(16-4절 깊이 보기, 가짜 STS 실측으로 요청마다 한 번). 체인을 워커에서 한 번만 만들어 `providerChainResolver`로 넘기면 만료 5분 전까지 같은 자격 증명을 다시 씁니다.
 
 </details>
