@@ -1,8 +1,10 @@
 // 10장 실습: ElevenLabs 플러그인 안의 blingfire 문장 분할기가 글을 언제 TTS로 넘기는지 잽니다 (학습서 10-4절).
 //  1) 한꺼번에 나눈 결과(tokenize): 20자 미만 문장이 다음 문장과 합쳐지는 모습
 //  2) 한 글자씩 25ms 간격으로 넣었을 때(stream) 덩어리가 나오는 시각. 플러그인 기본값과 바꾼 설정 비교
-//  3) 이 레포의 실제 경로: withoutLeadingAck(12자 보류) → filter_markdown → filter_emoji → pronunciationTransform
-//     → blingfire. 앞단의 보류가 문장 분할의 보류와 겹치는 모습 (기본값과 minSentenceLength 8)
+//  3) 이 레포의 실제 경로: withoutLeadingAck(첫머리 맞장구를 판단할 수 있을 때까지 보류) → filter_markdown → filter_emoji
+//     → pronunciationTransform → blingfire. 앞단의 보류가 문장 분할의 보류와 겹치는 모습 (기본값과 minSentenceLength 8).
+//     (2026-11-06 갱신) 맞장구로 시작하지 않는 이 입력은 withoutLeadingAck가 첫 글자 "가"에서 바로 내보내므로(17-2 #43 고침),
+//     앞단의 보류는 filter_markdown(구분 기호 앞까지)과 pronunciationTransform(마지막 공백 뒤)의 단어 보류입니다.
 //
 // 실행 (레포 루트에서):  node docs/1-study/lab/10-blingfire-stream.mjs   (1초 안팎, @livekit/agents 로딩)
 // 기준: Node 24, @livekit/agents 1.9.5, @livekit/blingfire 1.2.0, @livekit/agents-plugin-elevenlabs 1.9.5 (2026-11-06)

@@ -1,5 +1,7 @@
 // 12장 실습: 취소가 스트림 사슬을 따라 거꾸로 올라가는 순서와 시각을 찍습니다 (학습서 12-8절 "취소의 전파").
-//  1) 비동기 제너레이터에 return()을 보내는 두 경우: yield에서 멈춰 있을 때 / 상류를 await하는 중일 때
+//  1) 비동기 제너레이터에 return()을 보내는 두 경우: yield에서 멈춰 있을 때 / 상류를 await하는 중일 때.
+//     1-C는 이 레포의 withoutLeadingAck가 맞장구를 모으는 동안. (2026-11-06 갱신) 고치기 전 방식(처음 12자를 모아 판단,
+//     331c151 앞 src/ack.ts를 이 파일 안에 옮긴 사본)도 함께 돌려 return()이 처리되는 때를 비교
 //  2) toStream(@livekit/agents)으로 감싼 스트림을 cancel하면: cancel()은 바로 끝나지만 상류는 다음 조각까지 돎.
 //     ReadableStream.from으로 감싸면 cancel()이 return()이 끝날 때까지 기다림
 //  3) ReadableStream을 for await로 읽다 break: 기본은 cancel, values({ preventCancel: true })면 안 함
@@ -7,7 +9,7 @@
 //  5) 실제 사슬: 가짜 Anthropic 서버 → VoiceAnthropicLLM → Agent.default.llmNode → withoutLeadingAck(src/ack.ts)
 //     → toStream → generation.ts처럼 읽다가 끼어들기. 각 단계가 멈춘 시각과, 서버가 끝까지 썼는지
 //
-// 실행 (레포 루트에서):  node docs/1-study/lab/12-cancel.mjs   (약 11초)
+// 실행 (레포 루트에서):  node docs/1-study/lab/12-cancel.mjs   (약 12초)
 // 기준: Node 24, @livekit/agents 1.9.5, @livekit/agents-plugin-anthropic 1.9.5(@anthropic-ai/sdk 0.33.1) (2026-11-06)
 // 키·.env.local·외부 네트워크를 쓰지 않습니다. apiKey는 가짜 문자열이고 baseURL을 127.0.0.1의 가짜 서버로 바꿉니다.
 // 5번의 읽기 루프는 agents/voice/generation.ts performLLMInference(745~870)를 줄여 옮긴 것입니다(같은 순서로 부름).
@@ -15,7 +17,7 @@
 import { initializeLogger, llm, toStream, voice, waitForAbort } from '@livekit/agents';
 import { createServer } from 'node:http';
 import { ReadableStream } from 'node:stream/web';
-import { withoutLeadingAck } from '../../../src/ack.ts';
+import { stripLeadingAck, withoutLeadingAck } from '../../../src/ack.ts';
 import { VoiceAnthropicLLM } from '../../../src/models/anthropic.ts';
 
 initializeLogger({ pretty: false, level: 'error' });
@@ -27,6 +29,35 @@ function clock() {
   const log = (s) =>
     lines.push(`${String(Math.round(performance.now() - t0)).padStart(6)}ms  ${s}`);
   return { log, print: () => lines.forEach((l) => console.log(`   ${l}`)) };
+}
+
+// 고치기 전(331c151 앞) src/ack.ts의 withoutLeadingAck 사본: 처음 12자를 모은 뒤 한 번 판단. 맞장구 떼기는 지금과 같음
+async function* withoutLeadingAckOld(stream) {
+  let held = '';
+  let passing = false;
+  for await (const chunk of stream) {
+    if (passing) {
+      yield chunk;
+      continue;
+    }
+    const text = typeof chunk === 'string' ? chunk : chunk.delta?.content;
+    if (!text) {
+      if (typeof chunk !== 'string' && chunk.delta?.toolCalls?.length && held) {
+        yield stripLeadingAck(held);
+        held = '';
+        passing = true;
+      }
+      yield chunk;
+      continue;
+    }
+    held += text;
+    if (held.length >= 12) {
+      yield stripLeadingAck(held);
+      held = '';
+      passing = true;
+    }
+  }
+  if (held) yield stripLeadingAck(held);
 }
 
 /** 300ms마다 조각을 내는 느린 상류. finally가 언제 도는지 기록합니다. */
@@ -76,10 +107,15 @@ console.log('\n== 1-B. 중간 단계가 상류를 await하는 중에 return() (n
   print();
 }
 
-console.log('\n== 1-C. 이 레포의 withoutLeadingAck: 12자를 모으는 동안 return() ==');
-{
+// 상류는 "네, " → "예산" → "은 어느 정도" 순. 지금 방식은 "네, 예산"에서 판단이 서고(맞장구 뒤 "예산"은 맞장구의 앞부분이
+// 아님), 옛 방식은 12자 "네, 예산은 어느 정도"가 모여야 판단합니다. return()은 판단해서 처음 yield할 때 처리됩니다.
+for (const [label, gen] of [
+  ['이 레포의 withoutLeadingAck: 판단 전(맞장구만 모은 동안) return()', withoutLeadingAck],
+  ['옛 방식(12자, 사본): 12자를 모으는 동안 return()', withoutLeadingAckOld],
+]) {
+  console.log(`\n== 1-C. ${label} ==`);
   const { log, print } = clock();
-  const g = withoutLeadingAck(slowSource(log));
+  const g = gen(slowSource(log));
   const pending = g.next().then((r) => log(`걸려 있던 next() → ${JSON.stringify(r.value)}`));
   await sleep(50);
   log('return() 보냄');
@@ -310,7 +346,7 @@ async function interruptRun(label, s, interruptAtMs) {
   print();
 }
 
-// A: 통과 모드(12자 판단 뒤)에서 끼어들기. 조각 간격 200ms
+// A: 통과 모드(첫머리 판단 뒤)에서 끼어들기. 조각 간격 200ms
 await interruptRun(
   '통과 모드에서 끼어들기 (첫 조각 100ms, 이후 200ms 간격, 끼어들기 750ms)',
   {
@@ -328,7 +364,8 @@ await interruptRun(
   },
   750,
 );
-// B: 첫 글이 나오기 전(TTFT) 끼어들기. 첫 조각이 800ms에 오고, 12자가 모이는 데 조각 3개
+// B: 첫 글이 나오기 전(TTFT) 끼어들기. 첫 조각이 800ms에 오고, 판단이 서는 데 조각 3개
+//    (맞장구 둘 "네, 알겠습니다. " 뒤 "예산"이 와야 함. 옛 12자 방식도 우연히 같은 셋째 조각에서 12자가 됨)
 await interruptRun(
   '첫 글 전에 끼어들기 (첫 조각 800ms, 이후 150ms 간격, 끼어들기 300ms)',
   {

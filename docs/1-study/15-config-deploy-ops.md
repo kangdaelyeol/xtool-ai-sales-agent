@@ -331,7 +331,7 @@ build  ① package.json, pnpm-lock.yaml, pnpm-workspace.yaml, .npmrc, patches/ �
 | 비루트 사용자 | 컨테이너가 뚫려도 권한 최소화 |
 | `COPY --chown` | 따로 `chown -R`을 돌리면 node_modules 전체를 복사한 레이어가 하나 더 생김. (2026-11-06 추가) 이 레포 Dockerfile에는 따로 도는 `chown`이 없음(파일로 확인). 왜 "복사한 레이어"가 되는지는 아래 깊이 보기 |
 | **exec 형식 `CMD [...]`** | node가 PID 1이 되어 SIGTERM을 직접 받음 → drain 동작 (4-7절). (2026-11-06 갱신) 이 레포의 `CMD [ "node", "src/main.ts", "start" ]`는 exec 형식임(파일로 확인). 셸 형식 `CMD node src/main.ts start`는 `/bin/sh -c "…"`로 바뀌어 셸이 먼저 PID 1이 됨. 셸이 명령 하나를 자기 자리에 exec하면 node가 PID 1을 물려받지만, 명령이 둘 이상이면 셸이 남아 신호가 node에 안 감. 이미지의 셸이 어느 쪽인지는 **확인 필요**(아래 깊이 보기) |
-| `.dockerignore`에 `.env.*` | 비밀값이 이미지에 들어가지 않음. 그래서 이미지 안의 `dotenv`는 아무것도 안 읽고, 운영 비밀값은 진짜 환경변수로 넣어야 함. (2026-11-06 추가) 단 이 패턴은 **루트의** `.env.`으로 시작하는 이름만 막음. 하위 폴더의 `.env` 사본은 그대로 들어감(아래 깊이 보기의 `.history/` 사례) |
+| `.dockerignore`에 `.env.*` | 비밀값이 이미지에 들어가지 않음. 그래서 이미지 안의 `dotenv`는 아무것도 안 읽고, 운영 비밀값은 진짜 환경변수로 넣어야 함. (2026-11-06 추가) 단 이 패턴은 **루트의** `.env.`으로 시작하는 이름만 막음. 하위 폴더의 `.env` 사본은 그대로 들어갔음(아래 깊이 보기의 `.history/` 사례). (2026-11-06 갱신) 같은 날 `**/.env*`와 `.history/`를 더해 고침(17-2 #46, 커밋 `4bc8d72`) |
 
 ### download-files는 지금 무엇을 받나
 
@@ -423,7 +423,7 @@ final  (설정) USER / ENV NODE_ENV / CMD                   ●          ●    
 
 - **소스 한 줄**: 의존성 설치는 캐시로 건너뛰지만, 최종 단계의 `COPY --from=build /app /app`이 다시 만들어집니다. 이 레이어에는 **소스와 node_modules가 함께** 들어 있으므로, 코드 한 줄을 고칠 때마다 node_modules 전체(15-3절 실측으로 맥 기준 약 389MB)가 든 새 레이어가 생기고 레지스트리에도 통째로 올라갑니다. 최종 단계에서 node_modules를 먼저(설치 결과만 따로 담은 단계에서) 복사하고 소스를 나중에 복사하면 코드 변경은 작은 레이어만 바뀝니다(제안, 검증하지 않은 설계).
 - **lockfile**: 설치부터 아래가 모두 다시 돕니다. 의도한 동작입니다.
-- **학습서 문서**: `docs/`가 `.dockerignore`에 없어서 `COPY . .`가 학습서도 이미지에 넣습니다(빌드 컨텍스트 172개 파일 중 77개, 약 1.7MB). 문서만 고쳐도 소스 한 줄과 같은 범위가 다시 돌고 큰 레이어가 다시 올라갑니다. `docs/`를 `.dockerignore`에 넣는 것을 제안합니다.
+- **학습서 문서**: `docs/`가 `.dockerignore`에 없어서 `COPY . .`가 학습서도 이미지에 넣습니다(빌드 컨텍스트 172개 파일 중 77개, 약 1.7MB. 2026-11-06 갱신: #46을 고치고 실습을 더한 뒤 다시 세면 116개 중 83개, 약 2.1MB로 컨텍스트의 90%). 문서만 고쳐도 소스 한 줄과 같은 범위가 다시 돌고 큰 레이어가 다시 올라갑니다. `docs/`를 `.dockerignore`에 넣는 것을 제안합니다.
 - **apt 줄 수정**: base가 바뀌면 build와 최종 단계 모두가 무효입니다. 거꾸로, 이 줄을 **고치지 않으면** 몇 달이 지나도 캐시가 그대로 쓰입니다. 키가 명령 문자열이라 Debian에 보안 업데이트가 나와도 모릅니다. 가끔 `docker build --pull --no-cache`로 새로 빌드하거나, 베이스 이미지를 digest(`node:24-slim@sha256:…`)로 고정하고 갱신 도구로 올리는 방법이 있습니다. `FROM node:24-slim`의 태그는 움직이는 이름이라, 로컬에 받아 둔 옛 이미지를 그대로 쓸 수 있습니다(`--pull`로 새로 확인).
 
 **pnpm 저장소를 캐시 마운트로(제안).** 지금은 lockfile이 조금만 바뀌어도 `pnpm install`이 모든 패키지를 처음부터 받습니다. BuildKit의 캐시 마운트를 쓰면 pnpm 저장소가 빌드 사이에 남습니다.
@@ -437,7 +437,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 - pnpm은 평소 저장소에서 node_modules로 하드 링크를 거는데, 마운트 경계를 넘는 하드 링크는 안 되므로 복사로 바뀝니다. 설치는 조금 느려질 수 있지만 내려받기가 사라지는 이득이 큽니다(일반론).
 - Dockerfile 첫 줄의 `# syntax=docker/dockerfile:1`이 이런 BuildKit 문법을 켭니다. LiveKit Cloud의 원격 빌드가 캐시 마운트를 빌드 사이에 남기는지는 **확인 필요**입니다. LiveKit 문서상 원격 빌드는 10분 제한이 있고, 업로드하는 빌드 컨텍스트는 1GB 이하여야 합니다.
 
-**사례: 작업 폴더의 `.env` 사본이 빌드 컨텍스트에 들어간다.** 실습 1번은 `.dockerignore`를 적용한 뒤 `COPY . .`가 보는 파일을 셉니다. 이 맥에서 돌리자 경고가 나왔습니다(파일 내용은 열지 않고 이름과 크기만 셈).
+**사례: 작업 폴더의 `.env` 사본이 빌드 컨텍스트에 들어갔다 (2026-11-06 고침).** 실습 1번은 `.dockerignore`를 적용한 뒤 `COPY . .`가 보는 파일을 셉니다. 고치기 전에 이 맥에서 돌리자 경고가 나왔습니다(파일 내용은 열지 않고 이름과 크기만 셈).
 
 ```text
 == 1. 빌드 컨텍스트 (.dockerignore 적용 뒤, COPY . .이 보는 파일) ==
@@ -458,9 +458,24 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 - `.dockerignore`의 `.env.*`는 **컨텍스트 루트에서** `.env.`으로 시작하는 이름만 막습니다(Docker 규칙에서 `*`는 `/`를 넘지 않음). 하위 폴더의 `.env_…` 파일은 그대로 통과합니다.
 - 그래서 이 폴더에서 **로컬 `docker build`(GKE 경로)를 하면** 사본이 build 단계의 `/app/.history/`에 들어가고, 최종 단계가 `/app`을 통째로 복사하므로 **최종 이미지에 API 키가 실릴 수 있습니다**(사본이 위 추정대로라면). 이미지를 받을 수 있는 사람은 누구나 꺼내 볼 수 있습니다.
 - **LiveKit Cloud 배포(`lk agent deploy`)는 지금은 안전합니다.** LiveKit 문서에 따르면 CLI가 빌드 컨텍스트를 올릴 때 `.env.*` 파일과 `.dockerignore`·**`.gitignore`**에 걸린 파일을 뺍니다. `.gitignore`에 `.history/`가 있으므로 실습 4번처럼 빠집니다. 두 경로의 제외 규칙이 다르다는 것이 함정입니다.
-- 대응(제안): `.dockerignore`에 `.history/`와 `**/.env*`를 더하고, 이미지를 빌드할 때마다 실습 1번처럼 컨텍스트를 확인합니다. 배울 점은 **`COPY . .`는 git이 아니라 작업 폴더를 본다**는 것입니다. 15-8절 표에도 넣었습니다.
+- 대응(2026-11-06 고침, 커밋 `4bc8d72`): `.dockerignore`에 `**/.env*`(어느 폴더에 있든 `.env`로 시작하는 이름)와 `.history/`를 더했습니다. 다시 돌린 실습 1번에는 `.history/`가 사라지고 경고 대신 0개가 나옵니다(실측).
 
-**직접 확인(Docker가 있을 때, 사용자가 돌릴 것).** 이 맥에는 Docker가 없어(`docker --version` 실패) 아래는 돌리지 못했습니다. 베이스 이미지를 받으므로 네트워크가 필요하고 처음 빌드는 몇 분 걸립니다. **위 `.dockerignore` 문제를 먼저 고친 뒤에** 하고, 만든 이미지를 어디에도 올리지 않습니다.
+```text
+== 1. 빌드 컨텍스트 (.dockerignore 적용 뒤, COPY . .이 보는 파일) ==
+   파일 116개, 2424.1KB
+   docs/                      83개  2189.3KB
+   …
+   .dockerignore에 걸리지 않은 .env 계열 파일: 0개
+
+== 4. 같은 폴더를 lk agent deploy로 올리면 (.gitignore·.env.*도 뺌) ==
+   파일 116개 → 116개, .env 계열 0개
+   .gitignore 때문에 더 빠지는 것: 없음
+```
+
+- 172개 → 116개는 `.history/` 62개가 빠지고 그사이 실습 파일이 늘어난 몫입니다(docs/ 77개 → 83개). 4번의 "더 빠지는 것: 없음"은 이제 로컬 `docker build`와 `lk agent deploy`가 같은 파일을 본다는 뜻입니다. 크기는 학습서를 고칠 때마다 조금씩 달라집니다.
+- 이미지를 빌드할 때마다 실습 1번처럼 컨텍스트를 확인하는 습관은 그대로 남깁니다. 배울 점은 **`COPY . .`는 git이 아니라 작업 폴더를 본다**는 것입니다. 15-8절 표에도 넣었습니다.
+
+**직접 확인(Docker가 있을 때, 사용자가 돌릴 것).** 이 맥에는 Docker가 없어(`docker --version` 실패) 아래는 돌리지 못했습니다. 베이스 이미지를 받으므로 네트워크가 필요하고 처음 빌드는 몇 분 걸립니다. **실습 1번에서 `.env` 계열이 0개인지 먼저 확인한 뒤에** 하고(2026-11-06 갱신: `.dockerignore`는 고쳤음), 만든 이미지를 어디에도 올리지 않습니다.
 
 ```bash
 docker --version
@@ -592,7 +607,7 @@ rm .env.agent-secrets
 
 - (2026-11-05 갱신) 목록은 [6-web-test.md 6장](../6-web-test.md)의 배포 명령과 같습니다. 이전 판에는 `VOICE_RESULT_URL`·`VOICE_AGENT_SECRET`이 빠져 있었습니다. 그대로 배포하면 워커가 "통화 결과 전송 생략"만 남기고 결과를 보내지 않습니다(15-6절).
 - LLM을 Bedrock으로 바꿔 배포한다면 `LLM_PROVIDER`와 `AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`·`AWS_REGION`도 넣습니다. `AWS_BEARER_TOKEN_BEDROCK`은 넣지 않습니다. 코드는 이 값을 읽지 않습니다(16-4절).
-- 이미지에는 `.env.*`가 들어가지 않으므로(15-4절) 비밀값은 **LiveKit Cloud의 비밀값 저장소**로 따로 넘깁니다. 컨테이너에서는 환경변수로 보입니다. (2026-11-06 추가) LiveKit CLI는 업로드할 때 `.dockerignore`에 더해 `.gitignore`와 `.env.*`도 빼지만, 로컬 `docker build`는 `.dockerignore`만 봅니다. 하위 폴더의 `.env` 사본이 로컬 빌드에만 들어가는 사례가 15-4절 깊이 보기에 있습니다.
+- 이미지에는 `.env.*`가 들어가지 않으므로(15-4절) 비밀값은 **LiveKit Cloud의 비밀값 저장소**로 따로 넘깁니다. 컨테이너에서는 환경변수로 보입니다. (2026-11-06 추가) LiveKit CLI는 업로드할 때 `.dockerignore`에 더해 `.gitignore`와 `.env.*`도 빼지만, 로컬 `docker build`는 `.dockerignore`만 봅니다. 하위 폴더의 `.env` 사본이 로컬 빌드에만 들어가던 사례가 15-4절 깊이 보기에 있습니다(2026-11-06 고침: 지금은 `.dockerignore`도 `**/.env*`·`.history/`를 뺌).
 - 임시 파일 `.env.agent-secrets`는 `.gitignore`에 추가되어 있습니다. 명령이 중간에 실패해 `rm`이 안 돌아도 실수로 커밋되지 않게 하는 **이중 안전장치**입니다.
 - `LIVEKIT_URL`·키는 LiveKit Cloud가 넣어 주므로 빼는 것입니다. 세션 리포트 업로드(15-6절)도 이 값으로 인증됩니다.
 - 처음 만들면 `livekit.toml`(프로젝트·에이전트 정보)이 생기고, 커밋합니다. 이후 코드 변경은 `lk agent deploy`로 올립니다.
@@ -609,7 +624,7 @@ rm .env.agent-secrets
 | CPU | 계산 최적화형, 버스트형(크레딧) 피하기 | 로컬 턴 감지 mini 모델이 CPU 크레딧이 떨어지면 시간 초과 (LiveKit 문서 권고) |
 | 메모리 | 유휴 프로세스 수 × 프로세스 메모리 + 통화 수 × 통화 메모리 + 추론 프로세스(약 138MB 모델) | 프로세스마다 네이티브 라이브러리를 따로 올림 (4-4절). (2026-11-06 추가) 4장 실측을 넣은 계산과 OOM은 아래 깊이 보기 |
 | 유휴 프로세스 | 기본 `min(CPU 수, 4)` | (2026-11-06 갱신) "CPU 수"는 libuv가 cgroup `cpu.max`를 읽어 **내림**한 값(코드 확인). CPU 한도 1.5면 1개 → 아래 깊이 보기 |
-| 비밀값 | Secret → 환경변수 | 이미지에 `.env` 없음 (2026-11-06 추가: `.dockerignore`를 고친 뒤에만 참, 15-4절) |
+| 비밀값 | Secret → 환경변수 | 이미지에 `.env` 없음 (2026-11-06 추가: `.dockerignore`를 고친 뒤에만 참, 15-4절. 2026-11-06 갱신: `4bc8d72`에서 고침) |
 | `/tmp` 쓰기 | 읽기 전용 루트 파일시스템이면 emptyDir 마운트 | 세션 녹음·리포트를 임시 폴더에 씀 (15-6절) |
 | 턴 감지·끼어들기 | `TurnDetector({ version })`, `interruption.mode` 명시 여부 결정 | `start`에서는 기본값이 dev와 다름 (4-5절, 7장) |
 | 리전 | 워커 GCP 서울, 미디어·SIP는 LiveKit Cloud 일본 | [2-tech-stack.md 4-1](../2-tech-stack.md#4-1-프레임워크) |
@@ -978,7 +993,7 @@ LiveKit 자체 부품들(턴 감지, 끼어들기, 노이즈 제거)은 **실패
 | 비용 폭탄 | Anthropic 월 사용 한도, SIP 국제전화 차단·발신 규칙·방화벽 | [7-telephony-setup.md 7장](../7-telephony-setup.md#7-보안-요금-폭탄-막기) |
 | 클라우드 자격 증명 (2026-11-05 추가) | AWS는 Bedrock 호출만 허용한 좁은 정책, 장기 키 대신 연동 검토, 쓰지 않는 키 삭제, 예산 알림. 키 값·계정 ID를 공개 레포·스크린샷에 남기지 않음 | 16-5, 16-9 |
 | 공급망 | `allowBuilds`, lockfile 고정, 패치 최소화. (2026-11-06 추가) lockfile이 패키지마다 SHA-512(integrity), 패치 파일은 SHA-256으로 묶음. 정상 절차로 올라온 악성 새 판은 못 막음 | 15-3절 깊이 보기 |
-| 빌드 컨텍스트의 비밀값 (2026-11-06 추가) | `.dockerignore`의 `.env.*`는 루트의 이름만 막음. 작업 폴더의 `.history/`(편집기 로컬 기록)에 있던 `.env` 사본 47개가 로컬 `docker build`의 컨텍스트에 들어가 **최종 이미지에 실릴 수 있음**. LiveKit Cloud 업로드는 `.gitignore`도 빼서 지금은 해당 없음. `.history/`·`**/.env*`를 `.dockerignore`에 추가 제안 | 15-4절 깊이 보기, `lab/15-docker-cache.mjs` |
+| 빌드 컨텍스트의 비밀값 (2026-11-06 추가) | `.dockerignore`의 `.env.*`는 루트의 이름만 막았음. 작업 폴더의 `.history/`(편집기 로컬 기록)에 있던 `.env` 사본 47개가 로컬 `docker build`의 컨텍스트에 들어가 **최종 이미지에 실릴 수 있었음**. LiveKit Cloud 업로드는 `.gitignore`도 빼서 해당 없었음. (2026-11-06 갱신) `.history/`·`**/.env*`를 `.dockerignore`에 더해 고침(`4bc8d72`). 이미지 빌드 전 실습 1번으로 0개인지 확인 | 15-4절 깊이 보기, `lab/15-docker-cache.mjs` |
 | TTS 공급사의 기록 (2026-11-06 추가) | ElevenLabs 플러그인의 `enable_logging` 기본값이 `true`이고 `createTTS`가 바꾸지 않음. 고객 이름이 든 첫 멘트가 공급사 기록에 남을 수 있음. 보관하지 않는 방식(zero retention, `false`)은 엔터프라이즈 전용(ElevenLabs 문서). 계약·처리방침·고지에서 다룰 항목 | 10-3절 깊이 보기, 17-2 #40 |
 | 웹 테스트 토큰 (2026-11-06 추가) | 토큰의 `roomConfig.agents[0].metadata`에 고객 이름 등이 평문 JSON으로 실림. JWT는 서명일 뿐 암호화가 아니라 토큰을 가진 사람은 누구나 읽음. 토큰을 로그·오류 보고에 남기지 않기. 전화(SIP)는 서버끼리 디스패치하므로 해당 없음 | 3-7절 깊이 보기, 17-2 #29 |
 | 고지 | AI·녹음 고지를 고정 문장으로, 끼어들기 막음 | 9장 |
@@ -1003,7 +1018,7 @@ LiveKit 자체 부품들(턴 감지, 끼어들기, 노이즈 제거)은 **실패
 이미지  다단계 빌드, ca-certificates, 비루트, exec CMD (SIGTERM → drain)
         설치 전에 pnpm-workspace.yaml·.npmrc·patches 복사 (lockfile 검사가 잡아 준 문제, 고침)
         캐시 키 = 앞 키 + 명령 문자열 + 복사한 파일 체크섬. 마지막 COPY --from은 node_modules째 다시 올라감
-        COPY . .는 작업 폴더를 봄 → .history/의 .env 사본, docs/ 주의 (.dockerignore 보강 제안)
+        COPY . .는 작업 폴더를 봄 → .history/의 .env 사본(.dockerignore 보강, 2026-11-06 고침), docs/ 주의
         PID 1은 처리기 건 신호만 받고 고아를 거둬야 함. 지금은 좀비 경로 없음, tini는 값싼 방어
 배포    LiveKit Cloud(원격 빌드, v1·적응형 기본, 미국 리전, 재배포 때 최대 1시간 기다림) 또는 GKE 서울
         GKE면 유예 660~720초 제안(GKE 축소는 10분에서 자름), 헬스 체크 8081을 probe 셋에 나눔,

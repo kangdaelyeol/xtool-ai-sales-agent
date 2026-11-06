@@ -189,15 +189,15 @@ expect(res.text).toBe('네, 좋아요.');                         // 생각 블�
 3-A. 응답의 한글을 글자 중간에서 잘라 두 번에 씀 (20ms 간격)
    자른 자리 8곳("네"·"좋"·"아"·"요" 각각 1바이트 뒤, 2바이트 뒤) 중 res.text가 "네, 좋아요."인 경우 8/8
 
-3-B. 요청 본문이 커지면: 가짜 서버의 data 이벤트와 raw += chunk
-   실제 지시문 (buildInstructions, 지식 없음)      7,365바이트  data  1번 [7365]            U+FFFD 0개
-   지시문 + 한글 약 64KB                         75,365바이트  data  2번 [65065, 10300]     U+FFFD 3개, JSON.parse 성공
-   지시문 + 한글 약 256KB                       292,965바이트  data  5번 [65064, 65536, …]  U+FFFD 2개, JSON.parse 성공
-   지시문 + 한글 약 1MB                       1,163,365바이트  data 18번 [65063, 65536, …]  U+FFFD 22개, JSON.parse 성공
+3-B. 요청 본문이 커지면: 가짜 서버의 data 이벤트와 raw += chunk     (2026-11-06 갱신: 17-2 #34 뒤 다시 잼)
+   실제 지시문 (buildInstructions, 지식 없음)      7,360바이트  data  1번 [7360]            U+FFFD 0개
+   지시문 + 한글 약 64KB                         75,360바이트  data  2번 [65065, 10295]     U+FFFD 0개, JSON.parse 성공
+   지시문 + 한글 약 256KB                       292,960바이트  data  5번 [64856, 65536, …]  U+FFFD 9개, JSON.parse 성공
+   지시문 + 한글 약 1MB                       1,163,360바이트  data 18번 [65063, 65536, …]  U+FFFD 23개, JSON.parse 성공
 ```
 
 - 응답 쪽은 어디서 잘라도 안전했습니다. SDK가 `\n\n`까지 바이트로 모은 뒤 디코드하기 때문입니다(12-5절 깊이 보기). 지금은 통과하는 시험이지만, SDK가 바뀌어도 이 성질이 지켜지는지 보는 회귀 테스트로 둘 만합니다.
-- 요청 쪽은 12-5절이 "몇 KB부터 나뉘는지는 재지 않아 추정"이라고 남긴 것을 이번에 쟀습니다. 이 기계의 루프백에서는 본문이 약 64KiB(65,536바이트)를 넘자 `data` 이벤트가 나뉘었습니다. 첫 조각이 65,065바이트 안팎으로 조금 작은 것은 같은 64KiB 읽기에 HTTP 머리글이 먼저 들어가기 때문으로 봅니다(추정). 나뉜 자리가 한글 한가운데면 `raw += chunk`(테스트 55~56행과 같은 모양)가 U+FFFD를 넣었고(64KB의 3개는 경계 한 곳이 글자 첫 바이트 뒤에서 잘린 것), `JSON.parse`는 네 경우 모두 **성공**했습니다(17-2 #45). 개수는 실행마다 조금 다릅니다(256KB에서 2개 또는 5개).
+- 요청 쪽은 12-5절이 "몇 KB부터 나뉘는지는 재지 않아 추정"이라고 남긴 것을 이번에 쟀습니다. 이 기계의 루프백에서는 본문이 약 64KiB(65,536바이트)를 넘자 `data` 이벤트가 나뉘었습니다. 첫 조각이 65,065바이트 안팎으로 조금 작은 것은 같은 64KiB 읽기에 HTTP 머리글이 먼저 들어가기 때문으로 봅니다(추정). 나뉜 자리가 한글 한가운데면 `raw += chunk`(테스트 55~56행과 같은 모양)가 U+FFFD를 넣었고, `JSON.parse`는 네 경우 모두 **성공**했습니다(17-2 #45). 개수는 실행마다 조금 다릅니다(256KB에서 2~9개). (2026-11-06 갱신) 처음 판에서 64KB의 U+FFFD는 3개였습니다(경계 한 곳이 글자 첫 바이트 뒤에서 잘린 것). 17-2 #34로 지시문이 5바이트 줄자 같은 경계(65,065바이트째)가 글자 경계에 걸려 다시 잰 세 번 모두 0개였습니다. 깨지느냐가 본문 앞부분의 바이트 몇 개에 달려 있다는 뜻이고, 그래서 이런 버그는 우연히 숨었다가 무관한 변경으로 드러납니다.
 - 지금 지시문(7.4KB)은 한 번에 오므로 이 레포의 테스트는 안전합니다. 지식 파일(`knowledge/xtool.md`)이 수십 KB로 커지고 그 지시문을 실은 테스트가 생기면 드러납니다.
 
 **두 방식 비교: 로컬 HTTP 서버 vs fetch 주입.** [src/models/index.test.ts](../../src/models/index.test.ts)는 서버를 띄우지 않고 SDK 클라이언트에 `fetch` 함수를 주입합니다(`withOptions({ fetch })`). `VoiceAnthropicLLM`에도 SDK 0.33.1 클라이언트를 `client`로 넘기면 같은 방식을 쓸 수 있어서, 실습 4번에서 둘을 나란히 봤습니다(실측).
@@ -552,16 +552,18 @@ LiveKit Agents에는 방 없이 에이전트를 돌리는 테스트 도구가 �
 
 ### 실제로 돌려 보기: FakeLLM으로 키 없이 한 턴 (2026-11-06 추가)
 
-[lab/14-sdk-session.mjs](lab/14-sdk-session.mjs)는 이 레포의 실제 에이전트([src/agent.ts](../../src/agent.ts)의 `createAgent`: 지시문, 맞장구를 떼는 `llmNode`, `end_call` 도구)를 SDK의 `voice.testing.FakeLLM`과 `AgentSession`에 얹어 `session.run({ userInput })`으로 한 턴씩 돌립니다. 방도, STT·TTS·VAD도, API 키도 없습니다. FakeLLM은 마지막 사용자 말과 **글자까지 같은** 항목을 찾아 그 답을 3글자씩 잘라 흘립니다(`agents/voice/testing/fake_llm.ts` 89~96·119~148). 결과는 이렇습니다(실측).
+[lab/14-sdk-session.mjs](lab/14-sdk-session.mjs)는 이 레포의 실제 에이전트([src/agent.ts](../../src/agent.ts)의 `createAgent`: 지시문, 맞장구를 떼는 `llmNode`, `end_call` 도구)를 SDK의 `voice.testing.FakeLLM`과 `AgentSession`에 얹어 `session.run({ userInput })`으로 한 턴씩 돌립니다. 방도, STT·TTS·VAD도, API 키도 없습니다. FakeLLM은 마지막 사용자 말과 **글자까지 같은** 항목을 찾아 그 답을 3글자씩 잘라 흘립니다(`agents/voice/testing/fake_llm.ts` 89~96·119~148). 결과는 이렇습니다(실측. 2026-11-06 갱신: 17-2 #43을 고친 뒤 다시 돌림, 3번에 고치기 전 방식의 사본 결과를 함께 찍음).
 
 ```text
 == 1. llmNode(맞장구 제거)가 세션 안에서 ==
    사용자: "네, 괜찮아요"  (7.0ms)
      message(assistant) "예산은 어느 정도 생각하세요?"       ← FakeLLM의 답은 "네, 예산은 어느 정도 생각하세요?"
 
-== 3. 겹친 맞장구 (17-2 #43) ==
-   FakeLLM이 흘리는 조각: ["알겠습","니다."," 감사","합니다",". 예","산은요","?"] → 누적 12자에서 판단 (k=12)
-     message(assistant) "알겠습니다. 감사합니다. 예산은요?"   ← 기대는 "예산은요?"
+== 3. 겹친 맞장구 (17-2 #43, 2026-11-06 고침) ==
+   FakeLLM이 흘리는 조각: ["알겠습","니다."," 감사","합니다",". 예","산은요","?"]
+   지금 방식: 조각 5개 "알겠습니다. 감사합니다. 예"(15자)까지 모아 판단 → "예산은요?"
+   옛 방식(12자, 사본): 조각 4개 "알겠습니다. 감사합니다"(12자)에서 판단 → "알겠습니다. 감사합니다. 예산은요?"
+     message(assistant) "예산은요?"                          ← 세션이 남긴 답 (고치기 전에는 "알겠습니다. 감사합니다. 예산은요?")
 
 == 2. 마지막 인사 + end_call ==
    agent.constructor.name = AgentV2, voice.Agent와 같은가? false
@@ -573,10 +575,12 @@ LiveKit Agents에는 방 없이 에이전트를 돌리는 테스트 도구가 �
 ```
 
 - **맞장구 제거가 세션 안에서 돕니다.** `Agent.create`에 넘긴 `llmNode` 훅이 SDK의 `toStream`에 감싸여(12-4절) 실제 세션 경로로 불리고, 대화 기록에 뗀 답이 남습니다. 단위 테스트(`ack.test.ts`)가 함수만 봤다면, 이 시험은 "세션이 정말 그 함수를 쓰는가"까지 봅니다. 한 턴은 2~7ms입니다.
-- **17-2 #43이 세션에서도 재현됩니다.** 3글자 조각이면 누적 길이가 3, 6, 9, 12로 커지므로 12자에서 판단하는 `withoutLeadingAck`는 "알겠습니다. 감사합니다"만 보고 "다 지우면 원문 유지"로 넘어갑니다(12-7절 깊이 보기의 k = 12). 코드를 고친 뒤에는 이 한 턴이 그대로 회귀 테스트가 됩니다. FakeLLM의 고정된 조각 나누기가 12장의 "분할 하나를 손으로 고른 테스트"와 같은 역할을 하는 셈입니다.
-- **도구 호출 경로도 돕니다.** "네, 감사합니다."(9자)는 12자가 모이기 전에 도구 호출 청크가 오므로, `withoutLeadingAck`가 보류분을 먼저 내보냅니다(12-6절 설계 포인트). 맞장구를 다 떼면 빈 글이라 원문이 남았습니다. `result.expect`로 메시지 → `end_call` 호출 → 도구 결과의 순서를 단언했습니다.
+- **17-2 #43이 세션에서 재현되던 한 턴이 회귀 테스트가 됐습니다 (2026-11-06 갱신).** 3글자 조각이면 누적 길이가 3, 6, 9, 12로 커지므로, 고치기 전의 12자에서 판단하는 `withoutLeadingAck`는 "알겠습니다. 감사합니다"만 보고 "다 지우면 원문 유지"로 넘어갔습니다(12-7절 깊이 보기의 k = 12). 처음 판의 이 실습은 세션이 "알겠습니다. 감사합니다. 예산은요?"를 남기는 것을 보였습니다. 고친 뒤에는 맞장구 둘을 떼고 남은 "예"가 생기는 다섯째 조각까지 모아 판단하므로 "예산은요?"가 남습니다. FakeLLM의 고정된 조각 나누기가 12장의 "분할 하나를 손으로 고른 테스트"와 같은 역할을 하는 셈입니다.
+- **도구 호출 경로도 돕니다.** "네, 감사합니다."(9자)는 맞장구뿐이라 판단하지 못한 채 도구 호출 청크가 오므로, `withoutLeadingAck`가 보류분을 먼저 내보냅니다(12-6절 설계 포인트). 맞장구를 다 떼면 빈 글이라 원문이 남았습니다. `result.expect`로 메시지 → `end_call` 호출 → 도구 결과의 순서를 단언했습니다. (2026-11-06 갱신) 처음 판은 "12자가 모이기 전에 도구 호출 청크가 오므로"라고 적었습니다. 옛 방식에서는 그 이유였고, 지금은 판단할 수 없어서 기다리는 중에 도구 호출이 옵니다. 결과는 같습니다.
 
-**함정: `withMockTools`에 무엇을 넘기나 (코드로 확인).** SDK는 가짜 도구를 "지금 에이전트의 생성자"로 찾습니다(`agents/voice/testing/run_result.ts` 1050~1058의 `agent.constructor === agentConstructor`). SDK 주석의 예는 `class DriveThruAgent extends Agent`처럼 직접 만든 클래스를 넘기는데(같은 파일 1073~1084), 이 레포는 `Agent.create`를 쓰고 이 함수는 **부를 때마다 익명 하위 클래스 `AgentV2`를 새로 만듭니다**(`agents/voice/agent_v2.ts` 129~133). 그래서 `withMockTools(voice.Agent, …)`는 아무 오류 없이 무시되고 진짜 `end_call`이 돕니다. 진짜 `end_call`은 답이 끝나면 `session.shutdown()`을 부릅니다(`agents/beta/tools/end_call.ts` 157). 메시지 → 호출 → 결과의 **순서만** 단언하면 이 차이를 알아채지 못하고, 도구 결과가 가짜가 돌려준 값인지까지 봐야 드러납니다. 만든 인스턴스의 `agent.constructor`를 넘깁니다.
+**함정 1: `withMockTools`에 무엇을 넘기나 (코드로 확인).** SDK는 가짜 도구를 "지금 에이전트의 생성자"로 찾습니다(`agents/voice/testing/run_result.ts` 1050~1058의 `agent.constructor === agentConstructor`). SDK 주석의 예는 `class DriveThruAgent extends Agent`처럼 직접 만든 클래스를 넘기는데(같은 파일 1073~1084), 이 레포는 `Agent.create`를 쓰고 이 함수는 **부를 때마다 익명 하위 클래스 `AgentV2`를 새로 만듭니다**(`agents/voice/agent_v2.ts` 129~133). 그래서 `withMockTools(voice.Agent, …)`는 아무 오류 없이 무시되고 진짜 `end_call`이 돕니다. 진짜 `end_call`은 답이 끝나면 `session.shutdown()`을 부릅니다(`agents/beta/tools/end_call.ts` 157). 메시지 → 호출 → 결과의 **순서만** 단언하면 이 차이를 알아채지 못하고, 도구 결과가 가짜가 돌려준 값인지까지 봐야 드러납니다. 만든 인스턴스의 `agent.constructor`를 넘깁니다.
+
+**함정 2: 같은 ms에 찍힌 사건은 순서가 바뀐다 (코드로 확인 + 실측, 2026-11-06 추가).** `result.events`는 사건을 받는 대로 붙이지 않고 항목의 `createdAt`(ms, `Date.now()`) 순으로 끼워 넣습니다(`agents/voice/testing/run_result.ts` 358~365: 뒤에서부터 `createdAt <=`인 자리를 찾아 그 뒤에 넣음). 그런데 assistant 메시지의 `createdAt`은 재생 허가를 받은 시각(`replyStartedAt`, `agents/voice/agent_activity.ts` 4061)이고, 도구 호출의 `createdAt`은 도구 실행을 시작한 시각으로 다시 적힙니다(같은 파일 4230~4236). 도구 호출이 먼저 기록되고 메시지는 답이 끝난 뒤 기록되므로, 두 시각이 **같은 ms**이면 메시지가 도구 호출 **뒤**에 끼어 순서가 "도구 호출 → 메시지"가 됩니다. FakeLLM이 지연 없이 답하면 둘이 1~2ms 안에 몰려 이런 일이 생깁니다. 처음 판의 실습은 이 때문에 가끔 `isMessage` 단언에서 `Expected ChatMessageEvent, got function_call`로 멈췄습니다(실측: 고치기 전 코드로 20번 중 3번, 고친 뒤 20번 중 1번. 가짜 LLM 첫 토큰 0ms로 40번 돌리면 6번이 같은 ms였음). #43 수정과는 상관없는 SDK 쪽 성질입니다. 실습은 이 답에만 FakeLLM의 `ttft: 5`(첫 조각 전 5ms)를 줘 두 시각을 떼었고, 그 뒤 25번 모두 통과했습니다. 실제 LLM은 첫 토큰까지 수백 ms가 걸려 이 동률이 생기기 어렵지만, 순서를 단언하는 테스트를 FakeLLM으로 쓸 때는 `ttft`를 주거나 순서 대신 "있다"만 단언합니다. SDK 소스에도 "도구를 실행하기 전에 글을 다 만들었는지 확인하라"는 할 일 주석이 있습니다(같은 파일 4226~4227, `TODO(AJS-272)`). 같은 ms에서 순서를 정할 일련번호를 두거나 문서에 적어 달라고 LiveKit에 피드백을 보냈습니다(2026-11-06).
 
 **`session.run`이 거치지 않는 것 (코드로 확인).**
 
@@ -584,7 +588,7 @@ LiveKit Agents에는 방 없이 에이전트를 돌리는 테스트 도구가 �
 - 세션에 TTS가 없으므로 발음 변환(`ttsTextTransforms`의 `pronunciationTransform`)도 돌지 않습니다.
 - 그래서 이 도구로 시험하는 것은 "지시문 + LLM 노드 + 도구"이고, 훅과 TTS 쪽은 지금처럼 단위 테스트가 맡습니다.
 
-**vitest로 옮기면.** 아래 테스트를 레포 밖 임시 파일에 두고(가져오는 경로만 절대 경로로 바꿔) vitest 4.1.12로 돌려 두 개 모두 통과했고, 레포의 `tsconfig.json` 설정으로 타입 검사와 eslint도 통과했습니다(실측, 이 레포에는 아직 없음). `initializeLogger`를 빼면 세션이 `logger not initialized. did you forget to run initializeLogger()?`로 시작하지 못했습니다(실측). 두 테스트에 1초 남짓 걸리는데, 대부분은 세션을 닫는 시간(한 번에 약 0.5초)입니다.
+**vitest로 옮기면.** 아래 테스트를 레포 밖 임시 파일에 두고(가져오는 경로만 절대 경로로 바꿔) vitest 4.1.12로 돌려 두 개 모두 통과했고(2026-11-06 갱신: `ttft: 5`를 넣기 전 판으로 잰 것. 위 함정 2 때문에 그 판의 둘째 테스트는 실행에 따라 순서 단언에서 실패할 수 있습니다. `ttft: 5`를 넣은 판은 실습과 같은 설정이고, vitest로 다시 돌리지는 않았습니다), 레포의 `tsconfig.json` 설정으로 타입 검사와 eslint도 통과했습니다(실측, 이 레포에는 아직 없음). `initializeLogger`를 빼면 세션이 `logger not initialized. did you forget to run initializeLogger()?`로 시작하지 못했습니다(실측). 두 테스트에 1초 남짓 걸리는데, 대부분은 세션을 닫는 시간(한 번에 약 0.5초)입니다.
 
 ```ts
 // src/agent.test.ts (예시)
@@ -600,6 +604,7 @@ const llm = new FakeLLM([
   {
     input: '그냥 전화하지 마세요',
     content: '네, 감사합니다.',
+    ttft: 5, // 메시지와 도구 호출이 같은 ms에 찍혀 순서가 바뀌지 않게 (함정 2)
     toolCalls: [{ name: 'end_call', args: {} }],
   },
 ]);
@@ -727,7 +732,7 @@ it('전화하지 말라고 하면 인사하고 end_call을 부른다', async () 
 | 가짜 서버 테스트의 확장 | 쓰는 시각·취소·바이트 경계를 시험에 넣음 | #36(첫 글 지연)·#41(취소 미전파)을 잡는 테스트, 본문 64KiB부터 `raw += chunk` 깨짐(#45) |
 | 테스트 더블 | dummy·stub·spy·mock·fake. 이름보다 대신하는 것과 검증 방식 | `vi.fn`은 spy, `fakeSession`은 fake, FakeLLM은 stub에 가까움 |
 | 통과율의 통계 | n번 모두 통과해도 95% 상한 1 − 0.05^(1/n), 묶음이 모두 초록일 확률 p^m | 6/6 → 상한 39%, `--samples`는 1이나 3 |
-| SDK 세션 테스트 | `FakeLLM` + `session.run`으로 키 없이 한 턴 수 ms | 맞장구 제거가 세션에서 돎, #43 재현. `withMockTools`는 `agent.constructor`로 |
+| SDK 세션 테스트 | `FakeLLM` + `session.run`으로 키 없이 한 턴 수 ms | 맞장구 제거가 세션에서 돎, #43 재현(2026-11-06 고친 뒤 같은 턴이 통과). `withMockTools`는 `agent.constructor`로. 사건 순서는 `createdAt`(ms) 동률이면 바뀜 → FakeLLM에 `ttft` |
 | CI의 빈틈 | 테스트 파일 타입 검사 없음, 이미지 빌드 없음 | lockfile 검사는 CI 기본값으로 켜짐 |
 
 ---

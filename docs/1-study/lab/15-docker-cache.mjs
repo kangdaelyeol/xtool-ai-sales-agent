@@ -4,7 +4,7 @@
 //  3) 시나리오별로 다시 도는 줄: 소스 한 줄, lockfile, 학습서 문서, Dockerfile의 apt 줄
 //
 // 실행: 레포 루트에서  node docs/1-study/lab/15-docker-cache.mjs   (1초 안팎)
-// 기준: Node 24, 이 레포의 Dockerfile·.dockerignore. 2026-11-06 작성.
+// 기준: Node 24, 이 레포의 Dockerfile·.dockerignore. 2026-11-06 작성(같은 날 .dockerignore 보강 4bc8d72 뒤 다시 돌림).
 // Docker 없이 돕니다. 레포 파일을 읽기만 하고(내용 해시), .dockerignore에 걸린 파일은 열지 않습니다.
 // 이름이 .env로 시작하는 파일은 패턴과 상관없이 열지 않습니다(크기만 보고 경고). 키·네트워크를 쓰지 않습니다.
 // 4번은 git check-ignore로 .gitignore 규칙을 물어봅니다(LiveKit Cloud 업로드는 .gitignore도 빼기 때문).
@@ -89,6 +89,9 @@ if (secrets.length) {
     `   ⚠ .dockerignore에 걸리지 않은 .env 계열 파일 ${secrets.length}개 (내용은 열지 않음):`,
   );
   for (const [p, n] of groups) console.log(`      ${p}  ×${n}`);
+} else {
+  // (2026-11-06 추가) 17-2 #46을 고친 뒤(.dockerignore에 **/.env*, .history/ 추가)에는 이 줄이 나옵니다.
+  console.log('   .dockerignore에 걸리지 않은 .env 계열 파일: 0개');
 }
 
 // ── 2. Dockerfile 읽기 ─────────────────────────────────────────

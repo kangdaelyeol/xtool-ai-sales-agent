@@ -2,7 +2,10 @@
 //  1) 이 레포의 실제 에이전트(src/agent.ts의 createAgent: 지시문·llmNode의 맞장구 제거·end_call 도구)를
 //     voice.testing.FakeLLM과 AgentSession에 얹고 session.run({ userInput })으로 한 턴씩 돌림
 //  2) result.expect로 사건 순서를 검사: 메시지 → 도구 호출 → 도구 결과. end_call은 withMockTools로 가짜로 바꿈
-//  3) 세션 안에서도 17-2 #43(겹친 맞장구)이 재현되는지: FakeLLM은 답을 3글자씩 잘라 흘림
+//     (2026-11-06 갱신) 사건은 createdAt(ms) 순으로 끼워지므로, 메시지와 도구 호출이 같은 ms에 찍히면 순서가 바뀝니다.
+//     그래서 이 답에만 FakeLLM의 ttft 5ms를 줍니다(아래 2번 주석).
+//  3) 겹친 맞장구(17-2 #43, 2026-11-06 고침)가 세션 안에서 떼어지는지: FakeLLM은 답을 3글자씩 잘라 흘림.
+//     같은 조각을 고치기 전 방식(처음 12자를 모아 판단, 스크립트 안의 사본)에 넣은 결과도 함께 보임
 //  4) session.run이 거치지 않는 것: onUserTurnCompleted(오인식 보정·즉시 반응), TTS 쪽(발음 변환)
 //  5) 단언이 실패하면 어떤 메시지가 나오나
 //
@@ -12,6 +15,7 @@
 // 키·.env.local·네트워크를 쓰지 않습니다. LLM은 정해진 입력에 정해진 답을 내는 FakeLLM이고, STT·TTS·VAD·방이 없습니다.
 // FakeLLM의 답 조각 나누기(3글자씩)는 agents/voice/testing/fake_llm.ts 89~96, 입력 찾기는 119~148입니다.
 import { initializeLogger, voice } from '@livekit/agents';
+import { stripLeadingAck, withoutLeadingAck } from '../../../src/ack.ts';
 import { createAgent } from '../../../src/agent.ts';
 import { SAMPLE_CALL } from '../../../src/call-context.ts';
 
@@ -25,9 +29,60 @@ const llm = new FakeLLM([
   {
     input: '그냥 전화하지 마세요',
     content: '네, 감사합니다.',
+    // 사건은 createdAt(ms) 순으로 끼워집니다(agents/voice/testing/run_result.ts 358~365). 메시지는 재생 허가 시각
+    // (agent_activity.ts 4061), 도구 호출은 도구 실행을 시작한 시각(같은 파일 4230~4236)이라, 가짜 LLM이 지연 없이
+    // 답하면 둘이 같은 ms에 찍혀 도구 호출이 앞에 끼는 일이 있습니다(실측: 40번 중 6번). 5ms 늦추면 늘 메시지가 앞입니다.
+    ttft: 5,
     toolCalls: [{ name: 'end_call', args: {} }],
   },
 ]);
+
+// 고치기 전(331c151 앞) src/ack.ts의 withoutLeadingAck 사본: 처음 12자를 모은 뒤 한 번 판단. 맞장구 떼기는 지금과 같음
+async function* withoutLeadingAckOld(stream) {
+  let held = '';
+  let passing = false;
+  for await (const chunk of stream) {
+    if (passing) {
+      yield chunk;
+      continue;
+    }
+    const text = typeof chunk === 'string' ? chunk : chunk.delta?.content;
+    if (!text) {
+      if (typeof chunk !== 'string' && chunk.delta?.toolCalls?.length && held) {
+        yield stripLeadingAck(held);
+        held = '';
+        passing = true;
+      }
+      yield chunk;
+      continue;
+    }
+    held += text;
+    if (held.length >= 12) {
+      yield stripLeadingAck(held);
+      held = '';
+      passing = true;
+    }
+  }
+  if (held) yield stripLeadingAck(held);
+}
+
+/** 조각 배열을 필터에 넣어 결과와, 처음 내보낼 때까지 받은 조각 수를 돌려줍니다. */
+async function runFilter(filter, parts) {
+  let pulled = 0;
+  let firstAt;
+  async function* src() {
+    for (const p of parts) {
+      pulled++;
+      yield p;
+    }
+  }
+  let out = '';
+  for await (const x of filter(src())) {
+    firstAt ??= pulled;
+    out += x;
+  }
+  return { out, firstAt, held: parts.slice(0, firstAt).join('') };
+}
 
 const session = new voice.AgentSession({ llm });
 const agent = createAgent({ call: SAMPLE_CALL, llm });
@@ -58,15 +113,23 @@ const said1 = r1.expect.nextEvent().isMessage({ role: 'assistant' }).event().ite
 r1.expect.noMoreEvents();
 console.log(`   → FakeLLM 답 "네, 예산은 어느 정도 생각하세요?" → 세션이 남긴 답 "${said1}"`);
 
-console.log('\n== 3. 겹친 맞장구 (17-2 #43) ==');
+console.log('\n== 3. 겹친 맞장구 (17-2 #43, 2026-11-06 고침) ==');
 const chunks = [];
 for (let i = 0; i < '알겠습니다. 감사합니다. 예산은요?'.length; i += 3)
   chunks.push('알겠습니다. 감사합니다. 예산은요?'.slice(i, i + 3));
-console.log(`   FakeLLM이 흘리는 조각: ${JSON.stringify(chunks)} → 누적 12자에서 판단 (k=12)`);
+const now = await runFilter(withoutLeadingAck, chunks);
+const old = await runFilter(withoutLeadingAckOld, chunks);
+console.log(`   FakeLLM이 흘리는 조각: ${JSON.stringify(chunks)}`);
+console.log(
+  `   지금 방식: 조각 ${now.firstAt}개 ${JSON.stringify(now.held)}(${now.held.length}자)까지 모아 판단 → ${JSON.stringify(now.out)}`,
+);
+console.log(
+  `   옛 방식(12자, 사본): 조각 ${old.firstAt}개 ${JSON.stringify(old.held)}(${old.held.length}자)에서 판단 → ${JSON.stringify(old.out)}`,
+);
 const r2 = await turn('삼백만 원 안쪽이요');
 const said2 = r2.expect.nextEvent().isMessage({ role: 'assistant' }).event().item.textContent;
 console.log(
-  `   → 기대 "예산은요?", 실제 "${said2}" ${said2 === '예산은요?' ? '(맞음)' : '(틀림: #43이 세션에서도 재현)'}`,
+  `   → 세션이 남긴 답: 기대 "예산은요?", 실제 "${said2}" ${said2 === '예산은요?' ? '(맞음)' : '(틀림: #43이 세션에서 재현)'}`,
 );
 
 // ── 2. 도구 호출 순서 ───────────────────────────────────────────────────
@@ -109,7 +172,7 @@ r3.expect.nextEvent().isFunctionCall({ name: 'end_call' });
 r3.expect.nextEvent().isFunctionCallOutput();
 r3.expect.noMoreEvents();
 console.log(
-  `   → 사건 순서 단언 통과. 인사 "${bye}"는 12자 전에 도구 호출이 와서 보류분을 먼저 내보냈고, 다 떼면 빈 글이라 원문 유지`,
+  `   → 사건 순서 단언 통과. 인사 "${bye}"는 맞장구뿐이라 판단하지 못한 채 도구 호출이 와서 보류분을 먼저 내보냈고, 다 떼면 빈 글이라 원문 유지`,
 );
 
 // ── 4. 거치지 않는 것 ───────────────────────────────────────────────────

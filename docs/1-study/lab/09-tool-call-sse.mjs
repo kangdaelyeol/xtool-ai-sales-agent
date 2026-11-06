@@ -2,7 +2,8 @@
 //  1) 요청: 이 레포의 VoiceAnthropicLLM + 실제 end_call 도구로 만든 요청 본문(tools·system·messages의 모양)
 //  2) 응답: 인사 text 블록 → tool_use 블록(input_json_delta) → message_delta(stop_reason "tool_use")를
 //     가짜 서버가 SSE로 흘리면, 플러그인이 내는 ChatChunk 순서
-//  3) 같은 청크가 이 레포의 withoutLeadingAck(src/ack.ts)를 지난 뒤의 순서 (긴 인사, 짧은 인사)
+//  3) 같은 청크가 이 레포의 withoutLeadingAck(src/ack.ts)를 지난 뒤의 순서 (긴 인사, 짧은 인사, 맞장구뿐인 인사).
+//     (2026-11-06 갱신) 필터가 입력 몇 번째를 받은 뒤 내보냈는지도 적어, 판단이 서서 나간 글과 도구 호출이 풀어 준 글을 구별
 //  4) 도구 결과가 다음 요청에서 tool_use / tool_result 블록이 되는 모양
 //     (이 레포는 endInstructions: null이라 다음 요청이 없습니다. SDK 기본값이었다면 생길 요청을 만들어 봅니다)
 //
@@ -78,7 +79,7 @@ const RESPONSES = [
     '토요일 오후 방문체험 희망하신 걸로 ',
     '담당 상담사가 확정 연락드릴게요. 좋은 하루 보내세요.',
   ]),
-  // 2) 짧은 인사: 12자가 모이기 전에 도구 호출이 옴
+  // 2) 짧은 인사: "네, " 뒤 "안녕히 계세요."가 와서 도구 호출 전에 판단이 섬
   greetingThenEndCall('lab_2', ['네, ', '안녕히 계세요.']),
   // 3) 도구 결과를 받은 다음 요청에 대한 답(가정)
   [
@@ -160,9 +161,31 @@ async function collect(stream) {
   for await (const c of stream) out.push(c);
   return out;
 }
-async function* replay(chunks) {
-  for (const c of chunks) yield c;
+/** 필터를 지나며, 출력마다 그때까지 받은 입력 수를 함께 모읍니다. */
+async function collectAfterAck(chunks) {
+  let pulled = 0;
+  async function* src() {
+    for (const c of chunks) {
+      pulled++;
+      yield c;
+    }
+  }
+  const out = [];
+  for await (const c of withoutLeadingAck(src())) out.push([c, pulled]);
+  return out;
 }
+const kind = (c) =>
+  typeof c === 'string'
+    ? '글'
+    : c.delta?.toolCalls?.length
+      ? '도구 호출'
+      : c.delta?.content
+        ? '글 조각'
+        : '사용량';
+const showAfter = (pairs, input) =>
+  pairs.forEach(([c, n], i) =>
+    console.log(`  ${i}. ${show(c)}   ← 입력 ${n}번째(${kind(input[n - 1])})를 받고 냄`),
+  );
 
 // ── 1) 요청 본문
 const raw1 = await collect(model.chat({ chatCtx: callHistory(), toolCtx: tools }));
@@ -220,14 +243,23 @@ raw1.forEach((c, i) => console.log(`  ${i}. ${show(c)}`));
 // ── 3) withoutLeadingAck를 지난 뒤
 console.log('\n3) withoutLeadingAck(src/ack.ts)를 지난 뒤');
 console.log('  긴 인사:');
-const acked1 = await collect(withoutLeadingAck(replay(raw1)));
-acked1.forEach((c, i) => console.log(`  ${i}. ${show(c)}`));
+const after1 = await collectAfterAck(raw1);
+showAfter(after1, raw1);
+const acked1 = after1.map(([c]) => c);
 const raw2 = await collect(model.chat({ chatCtx: callHistory(), toolCtx: tools }));
 console.log('  짧은 인사(플러그인 출력):');
 raw2.forEach((c, i) => console.log(`  ${i}. ${show(c)}`));
 console.log('  짧은 인사(withoutLeadingAck 뒤):');
-const acked2 = await collect(withoutLeadingAck(replay(raw2)));
-acked2.forEach((c, i) => console.log(`  ${i}. ${show(c)}`));
+showAfter(await collectAfterAck(raw2), raw2);
+// 3) 맞장구뿐인 인사: 짧은 인사의 청크에서 둘째 글 조각만 "감사합니다."로 바꿈(서버를 다시 부르지 않음).
+//    맞장구를 다 떼면 남는 글이 없어 판단이 서지 않으므로, 도구 호출 청크가 와야 보류가 풀립니다.
+const raw3 = raw2.map((c) =>
+  c.delta?.content === '안녕히 계세요.'
+    ? { ...c, delta: { ...c.delta, content: '감사합니다.' } }
+    : c,
+);
+console.log('  맞장구뿐인 인사 "네, 감사합니다."(withoutLeadingAck 뒤):');
+showAfter(await collectAfterAck(raw3), raw3);
 
 // ── 4) 다음 요청에서 tool_use / tool_result가 되는 모양
 console.log(
