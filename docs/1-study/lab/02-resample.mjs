@@ -3,6 +3,7 @@
 //  2) 품질 단계마다 push 한 번에 몇 샘플이 나오나 (출력이 몰려 나오는 모양)
 //  3) 필터가 붙잡아 두는 양 = 리샘플러가 더하는 지연
 //  4) 앨리어싱: 새 나이퀴스트 위의 소리가 접혀 들어오는지
+//  5) 디더: 디지털 0을 넣어도 ±1이 나오고, 같은 입력도 리샘플러마다 결과가 조금 다른지
 //
 // 실행: 레포 루트에서  node docs/1-study/lab/02-resample.mjs
 // 기준: @livekit/rtc-node 1.2.1 (AudioResampler = 네이티브 libsoxr, rtc-node/src/audio_resampler.ts),
@@ -113,5 +114,35 @@ console.log(
   `\n   6kHz를 8kHz로: 그냥 솎아 내면 2kHz에 ${levelDb(naive, 2000, 8000).toFixed(1)}dBFS, ` +
     `MEDIUM이면 ${levelDb(filtered, 2000, 8000).toFixed(1)}dBFS`,
 );
+
+// 5) 디더. 출력이 16비트 정수이면 soxr가 TPDF 디더를 기본으로 섞습니다(soxr.h의 SOXR_NO_DITHER로 끔).
+//    난수 씨앗은 "현재 시각(초) XOR 리샘플러 객체 주소"(soxr.c의 soxr_create)입니다. 그래서 동시에 살아 있는
+//    두 리샘플러는 같은 입력에도 ±1이 붙는 자리가 다릅니다. 하나를 닫고 같은 초에 새로 만들면 주소가 재사용되어
+//    결과가 똑같이 나오기도 합니다(마지막 칸).
+console.log('\n5) 디더: 24k→16k, 1초씩. 디지털 0 입력 / 같은 1kHz 순음을 리샘플러 둘로 바꿨을 때 다른 샘플 수');
+function twice(quality, together) {
+  const make = () => new AudioResampler(24000, 16000, 1, quality);
+  const outs = [[], []];
+  const rs = together ? [make(), make()] : [make()];
+  const frames = (i) => new AudioFrame(tone(1000, 24000, 240)(i), 24000, 1, 240);
+  for (let i = 0; i < 100; i++) rs.forEach((r, j) => r.push(frames(i)).forEach((f) => outs[j].push(...f.data)));
+  rs.forEach((r, j) => r.flush().forEach((f) => outs[j].push(...f.data)));
+  rs.forEach((r) => r.close());
+  if (!together) {
+    const r = make(); // 앞의 것을 닫은 뒤 만듦
+    for (let i = 0; i < 100; i++) r.push(frames(i)).forEach((f) => outs[1].push(...f.data));
+    r.flush().forEach((f) => outs[1].push(...f.data));
+    r.close();
+  }
+  return outs[0].filter((v, i) => v !== outs[1][i]).length;
+}
+for (const name of ['QUICK', 'MEDIUM', 'VERY_HIGH']) {
+  const zeros = run(24000, 16000, QUALITIES[name], 240, 100).out;
+  const nonzero = zeros.filter((v) => v !== 0);
+  console.log(
+    `   ${name.padEnd(9)} 0 입력: ${((nonzero.length / zeros.length) * 100).toFixed(0)}%가 ±${Math.max(...nonzero.map(Math.abs))}` +
+      `   동시에 둘: ${twice(QUALITIES[name], true)}/16000 다름   닫고 다시: ${twice(QUALITIES[name], false)}/16000 다름`,
+  );
+}
 
 await dispose();

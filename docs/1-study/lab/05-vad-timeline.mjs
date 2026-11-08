@@ -10,7 +10,7 @@
 // 규칙의 출처 (node_modules/@livekit/agents/src/ 기준)
 //   창 판정·카운터     inference/vad.ts 366~417  (말 창이면 무음 카운터 0, 무음 창이면 말 카운터 0)
 //   INFERENCE_DONE    inference/vad.ts 345~364  (카운터를 이번 창으로 갱신하기 "전" 값을 실음)
-//   예측 요청 조건     voice/audio_recognition.ts 2196~2203, inference/eot/base.ts 23 (MIN_SILENCE_DURATION_MS = 200)
+//   예측 요청 조건     voice/audio_recognition.ts 2197~2204, inference/eot/base.ts 23 (MIN_SILENCE_DURATION_MS = 200)
 //   시각 거꾸로 맞춤   voice/audio_recognition.ts 2141·2223 (Date.now() − 길이 − inferenceDuration)
 import { inference } from '@livekit/agents';
 import { AudioFrame, dispose } from '@livekit/rtc-node';

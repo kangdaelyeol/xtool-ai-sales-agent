@@ -112,6 +112,9 @@ function draw(title, frames) {
 const { rate, pcm, source } = koreanSpeech();
 const wide = resample(pcm, rate, RATE);
 const phone = resample(resample(pcm, rate, 8000), 8000, RATE);
+// 기준선: 값이 모두 0인 소리(디지털 무음)를 같은 길로 왕복한 것. 리샘플러가 16비트로 반올림하며
+// 섞는 디더(±1)만 남으므로, 왕복본의 4kHz 위가 이 값과 같으면 "말소리가 전혀 남지 않았다"는 뜻입니다.
+const silence = resample(resample(new Int16Array(pcm.length), rate, 8000), 8000, RATE);
 
 console.log(
   `설정: 창 ${WIN}샘플(${(WIN / RATE) * 1000}ms) Hann, 홉 ${HOP}(${(HOP / RATE) * 1000}ms), ` +
@@ -127,12 +130,14 @@ console.log(
 );
 console.log(`음성: ${source}`);
 
-for (const [name, x] of [
-  ['16kHz 원본', wide],
-  ['8kHz 왕복본(전화 대역)', phone],
+for (const [name, x, picture] of [
+  ['16kHz 원본', wide, true],
+  ['8kHz 왕복본(전화 대역)', phone, true],
+  ['디지털 무음을 같은 길로 왕복한 것(기준선)', silence, false],
 ]) {
   const frames = stft(x);
-  draw(`${name}: 창 ${frames.length}개`, frames);
+  if (picture) draw(`${name}: 창 ${frames.length}개`, frames);
+  else console.log(`\n${name}: 창 ${frames.length}개 (그림은 빈칸뿐이라 생략)`);
   const logMel = frames.map(melEnergies);
   const avg = (from, to) =>
     logMel.reduce((s, m) => s + m.slice(from, to).reduce((a, b) => a + b, 0) / (to - from), 0) /
@@ -141,5 +146,18 @@ for (const [name, x] of [
     `   로그 멜 평균: 4kHz 아래 대역 ${avg(0, firstAbove4k).toFixed(1)}dB, 4kHz 위 대역 ${avg(firstAbove4k, N_MELS).toFixed(1)}dB`,
   );
 }
+
+// 원본에서 4kHz 위 성분이 차지하는 에너지. 빈 1~128(31.25~4,000Hz)과 129~256(4,031~8,000Hz)을 견줍니다.
+let below = 0;
+let above = 0;
+for (const power of stft(wide)) {
+  for (let k = 1; k <= 128; k++) below += power[k];
+  for (let k = 129; k < BINS; k++) above += power[k];
+}
+console.log(
+  `\n원본에서 4kHz 위 성분의 에너지: 아래의 ${((above / below) * 100).toFixed(1)}%` +
+    ` (${(10 * Math.log10(above / below)).toFixed(1)}dB). 이것이 빠지면 전체 크기가` +
+    ` ${(10 * Math.log10((below + above) / below)).toFixed(2)}dB 줄어듭니다.`,
+);
 
 await dispose();

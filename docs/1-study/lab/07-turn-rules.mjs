@@ -22,7 +22,7 @@ const padW = (t, n) =>
   ' '.repeat(Math.max(0, n - [...t].reduce((w, c) => w + (c.charCodeAt(0) > 0x1100 ? 2 : 1), 0)));
 
 // ── 1. 언어별 기준값 ────────────────────────────────────────────────────
-console.log('1) 턴 감지 기준값 (unlikelyThreshold) — inference.ThresholdOptions');
+console.log('1) 턴 감지 기준값 (unlikelyThreshold): inference.ThresholdOptions');
 const mini = new inference.ThresholdOptions('turn-detector-v1-mini');
 const langs = ['ko', 'ko-KR', 'Korean', undefined, '', 'xx', 'en', 'ja'];
 console.log(
@@ -70,7 +70,7 @@ for (const [label, c] of [
 }
 
 // ── 3. dynamic 모드 ────────────────────────────────────────────────────
-console.log("\n3) endpointing.mode 'dynamic' — voice.DynamicEndpointing (minDelay 300, maxDelay 2500, alpha 0.9)");
+console.log("\n3) endpointing.mode 'dynamic': voice.DynamicEndpointing (minDelay 300, maxDelay 2500, alpha 0.9)");
 const show = (ep, label) => console.log(`   ${padW(label, 56)} minDelay ${ep.minDelay.toFixed(1)}`);
 let ep = new voice.DynamicEndpointing({ minDelay: 300, maxDelay: 2500, alpha: 0.9 });
 ep.onStartOfSpeech(0);
@@ -141,7 +141,7 @@ for (let n = 1; ; n++) {
 }
 
 // ── 5. minWords ────────────────────────────────────────────────────────
-console.log('\n5) minWords의 단어 세기 — tokenize.basic.splitWords(text, true): 공백으로 자르고 구두점을 뺌');
+console.log('\n5) minWords의 단어 세기 (tokenize.basic.splitWords(text, true): 공백으로 자르고 구두점을 뺌)');
 for (const s of ['네', '아니요', '잠깐만요', '아니요.', '음...', '아니 잠깐만요', '네, 네.', '잠깐만요, 그게 아니라']) {
   const words = tokenize.basic.splitWords(s, true).map((w) => w[0]);
   console.log(

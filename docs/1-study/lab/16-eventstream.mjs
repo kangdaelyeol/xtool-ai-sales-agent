@@ -1,4 +1,4 @@
-// 16장 실습: bedrock-runtime 스트리밍 응답의 바이트 — AWS event-stream 프레임 한 개를 만들고, 손으로 읽고, CRC32를 다시 계산
+// 16장 실습: bedrock-runtime 스트리밍 응답의 바이트. AWS event-stream 프레임 한 개를 만들고, 손으로 읽고, CRC32를 다시 계산
 // (학습서 16-6절 "깊이 보기: bedrock-runtime 응답을 바이트로 읽기").
 //  1) SDK가 쓰는 코덱(@smithy/eventstream-codec)으로 chunk 프레임 하나를 만들어 hexdump
 //  2) 손으로 쪼개기: 전체 길이 4B · 머리글 길이 4B · 앞부분 CRC 4B · 머리글들 · 본문 {"bytes":"<base64>"} · 메시지 CRC 4B

@@ -115,7 +115,7 @@ console.log(
   `   24kHz 디지털 0을 QUICK으로 16kHz로 바꾼 1.2초: 값 −1 ${hist['-1']}개, 0 ${hist[0]}개, +1 ${hist[1]}개 → p ${pDither.toFixed(4)}`,
 );
 console.log(
-  `   같은 무음을 한 번 더 바꾸면 ${differ.toLocaleString()}샘플이 다름 → p ${(await native.predict(again16)).toFixed(4)} (디더가 실행마다 무작위)`,
+  `   같은 무음을 한 번 더 바꾸면 ${differ.toLocaleString()}샘플이 다름 → p ${(await native.predict(again16)).toFixed(4)} (리샘플러마다 디더 씨앗이 다름)`,
 );
 
 // ── 1. 녹음 만들기 ──────────────────────────────────────────────────────

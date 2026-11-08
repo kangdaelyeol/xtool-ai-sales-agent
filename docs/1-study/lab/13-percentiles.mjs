@@ -12,7 +12,7 @@
 // 기준: Node.js 24. 2026-11-06 작성. 키·네트워크·.env.local을 쓰지 않고, SDK도 불러오지 않습니다.
 // 3)·4)의 값은 모두 가상입니다(실측 아님). 4)는 실제 A/B의 원 값이 아니라, 그 요약에 맞게 일부러 만든 두 극단입니다.
 // 출처
-//   compare-llm의 백분위     scripts/compare-llm.ts 66~69 (sorted[min(n − 1, floor(n·p))])
+//   compare-llm의 백분위     scripts/compare-llm.ts 67~70 (sorted[min(n − 1, floor(n·p))])
 //   A/B 요약                 docs/5-poc-results.md "Bedrock 도쿄 A/B" (Haiku 4.5, 12회씩 번갈아)
 //   말 끝 2.5초 대기 (#39)    학습서 7-4절, 17-2 #39
 

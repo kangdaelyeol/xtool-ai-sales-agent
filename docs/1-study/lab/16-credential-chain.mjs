@@ -1,4 +1,4 @@
-// 16장 실습: 자격 증명 체인이 실제로 하는 일 — 순서 뒤집기와, 요청마다 다시 찾기
+// 16장 실습: 자격 증명 체인이 실제로 하는 일. 순서 뒤집기와, 요청마다 다시 찾기
 // (학습서 16-4절 "깊이 보기: 체인의 실제 동작").
 //  1) AWS_PROFILE과 환경변수 키가 함께 있을 때: Node 기본 체인(fromNodeProviderChain)은 프로필 키를,
 //     Bedrock SDK(core/auth.js의 createCredentialChain(fromEnv, …))는 환경변수 키를 씀

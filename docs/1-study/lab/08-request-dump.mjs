@@ -281,7 +281,7 @@ const a = body1.system[0].text;
 const b = body3.system[0].text;
 let k = 0;
 while (k < a.length && a[k] === b[k]) k++;
-console.log(`  다른 통화의 1턴 요청이 처음 달라지는 자리: ${d + 1} (${p3[d].name}), 지시문 ${k}번째 글자(${bytes(a.slice(0, k))}B) — "${a.slice(k - 8, k + 6).replace(/\n/g, '⏎')}" 부근`);
+console.log(`  다른 통화의 1턴 요청이 처음 달라지는 자리: ${d + 1} (${p3[d].name}), 지시문 ${k}번째 글자(${bytes(a.slice(0, k))}B), "${a.slice(k - 8, k + 6).replace(/\n/g, '⏎')}" 부근`);
 console.log(`  지시문 전체 ${a.length}자 중 앞 ${k}자는 두 통화가 같음. 그러나 그 경계에는 브레이크포인트가 없음.\n`);
 
 simulate('통화 A 1턴', p1);
@@ -489,7 +489,7 @@ for (const c of CASES) {
     console.log(
       `    ${String(Math.round(e.t - r.started)).padStart(5)}ms 'error' 이벤트: ${err.name}` +
         `${err.statusCode !== undefined ? ` statusCode=${err.statusCode}` : ''} retryable=${err.retryable}` +
-        ` recoverable=${e.recoverable} — ${String(err.message).slice(0, 70)}`,
+        ` recoverable=${e.recoverable}: ${String(err.message).slice(0, 70)}`,
     );
   }
   if (text) console.log(`    고객 쪽으로 이미 나간 글: "${text}"`);

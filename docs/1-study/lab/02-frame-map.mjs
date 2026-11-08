@@ -79,7 +79,8 @@ row(
   `${ttsFrames.length}개 프레임 × ${ttsFrames[0].samplesPerChannel}샘플(${ttsFrames[0].samplesPerChannel * 2}B, 100ms)`,
 );
 
-// 출력: 22.05kHz → 24kHz, MEDIUM(기본값). 첫 프레임이 짧게 나오는 것은 필터가 앞부분을 붙잡기 때문입니다.
+// 출력: 22.05kHz → 24kHz, MEDIUM(기본값). 첫 프레임이 짧은 것은 필터가 뒤 샘플을 볼 때까지 이번 입력의 끝부분을
+// 붙잡아 두기 때문입니다. 소리의 시작은 늦추지 않습니다(2-2절 깊이 보기 ⑤).
 const up = new AudioResampler(22050, 24000, 1, AudioResamplerQuality.MEDIUM);
 const upSizes = ttsFrames.map((f) => up.push(f).reduce((n, o) => n + o.samplesPerChannel, 0));
 const held = 24000 - upSizes.reduce((a, b) => a + b, 0);

@@ -1,4 +1,4 @@
-// 14장 실습: 가짜 시계의 내부 — vitest 4.1.12의 vi.useFakeTimers 아래에서 Promise 사슬과 타이머가 도는 순서
+// 14장 실습: 가짜 시계의 내부. vitest 4.1.12의 vi.useFakeTimers 아래에서 Promise 사슬과 타이머가 도는 순서
 // (학습서 14-3절 "깊이 보기: 가짜 시계는 이벤트 루프의 어디를 바꾸나").
 //  1) 기본 설정이 무엇을 가짜로 바꾸나: setTimeout·setImmediate·Date·performance.now·process.hrtime은 가짜,
 //     process.nextTick·queueMicrotask는 진짜

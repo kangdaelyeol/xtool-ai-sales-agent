@@ -243,7 +243,7 @@ for (const [label, text] of [
     console.log(
       `   ${label}, minSentenceLength ${String(minLen).padStart(2)}: ` +
         `보류 없음 ${a.atMs}ms / 지금 ${b.atMs}ms (보류가 풀린 시각 ${now.out[0][0]}ms) / ` +
-        `옛 12자 ${c.atMs}ms (${old.out[0][0]}ms) — ${b.how}`,
+        `옛 12자 ${c.atMs}ms (${old.out[0][0]}ms): ${b.how}`,
     );
     console.log(`      지금 방식의 첫 TTS 글: ${JSON.stringify(b.token)}`);
   }
