@@ -31,7 +31,16 @@ export const SAMPLE_CALL: CallContext = {
 export function parseCallContext(metadata: string | undefined): CallContext {
   if (!metadata) return SAMPLE_CALL;
   try {
-    return CallContextSchema.parse(JSON.parse(metadata));
+    const fields = z.record(z.string(), z.unknown()).parse(JSON.parse(metadata));
+    const result = CallContextSchema.safeParse(fields);
+    if (result.success) return result.data;
+    // 칸 하나만 틀려도(예: installment "희망함") 전부 버리면 맞게 온 이름과 callId까지 잃어 통화 결과를
+    // 보내지 못합니다. 틀린 칸만 빼고 다시 읽어 그 칸만 기본값으로 둡니다.
+    const invalid = result.error.issues.map((issue) => String(issue.path[0]));
+    log().warn({ invalid }, '통화 metadata의 일부 칸이 계약과 달라 그 칸은 기본값으로 진행합니다');
+    return CallContextSchema.parse(
+      Object.fromEntries(Object.entries(fields).filter(([key]) => !invalid.includes(key))),
+    );
   } catch (error) {
     // 실제 통화일 수 있으므로 가상 고객 대신 빈 정보로 진행합니다 ("고객님"으로 부름).
     log().warn({ error }, '통화 metadata를 읽지 못해 고객 정보 없이 진행합니다');

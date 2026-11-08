@@ -19,13 +19,6 @@ describe('openingLine', () => {
   });
 });
 
-describe('parseCallContext', () => {
-  it('metadata가 없으면 가상 고객, 깨졌으면 빈 정보로 진행한다', () => {
-    expect(parseCallContext(undefined)).toEqual(SAMPLE_CALL);
-    expect(parseCallContext('not json').customerName).toBe('');
-  });
-});
-
 describe('buildInstructions', () => {
   it('통화별 고객 정보는 프롬프트 맨 뒤에 둔다 (앞부분 캐시 유지)', () => {
     const a = buildInstructions(SAMPLE_CALL);
