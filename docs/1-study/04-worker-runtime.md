@@ -350,32 +350,42 @@ export type CallContext = z.infer<typeof CallContextSchema>;   // 타입을 스�
 - `z.infer`로 **타입과 검증 규칙을 한곳에서** 정의합니다. 타입 따로, 검증 따로 쓰면 둘이 어긋나기 쉽습니다.
 - `installment`는 `z.enum`이라 "희망함" 같은 오타가 오면 검증에 실패합니다.
 
-그리고 실패했을 때의 처리가 세 갈래입니다.
+(2026-11-08 갱신) 그리고 들어온 값에 따라 네 갈래로 나뉩니다.
 
 ```ts
 export function parseCallContext(metadata: string | undefined): CallContext {
-  if (!metadata) return SAMPLE_CALL;              // ① metadata 없음 → 테스트 환경 → 가상 고객 "김민수"
+  if (!metadata) return SAMPLE_CALL;                  // ① metadata 없음 → 테스트 환경 → 가상 고객 "김민수"
   try {
-    return CallContextSchema.parse(JSON.parse(metadata));   // ② 정상
+    const fields = z.record(z.string(), z.unknown()).parse(JSON.parse(metadata));  // JSON 객체인가
+    const result = CallContextSchema.safeParse(fields);
+    if (result.success) return result.data;           // ② 정상
+    const invalid = result.error.issues.map((issue) => String(issue.path[0]));
+    log().warn({ invalid }, '통화 metadata의 일부 칸이 계약과 달라 그 칸은 기본값으로 진행합니다');
+    return CallContextSchema.parse(                   // ③ 칸 일부가 틀림 → 틀린 칸만 빼고 다시 읽음
+      Object.fromEntries(Object.entries(fields).filter(([key]) => !invalid.includes(key))),
+    );
   } catch (error) {
     log().warn({ error }, '통화 metadata를 읽지 못해 고객 정보 없이 진행합니다');
-    return CallContextSchema.parse({});           // ③ 깨짐 → 실제 통화일 수 있음 → 빈 정보("고객님")
+    return CallContextSchema.parse({});               // ④ JSON 객체가 아님 → 실제 통화일 수 있음 → 빈 정보("고객님")
   }
 }
 ```
 
-③에서 가상 고객을 쓰지 않는 이유가 중요합니다. metadata가 있었다는 것은 **실제 통화일 가능성**이 높다는 뜻입니다. 이때 "김민수 고객님"이라고 부르면 실제 고객에게 남의 이름을 부르게 됩니다. 이름을 안 부르는 쪽이 훨씬 안전합니다(1장 원칙 5). 테스트가 이 동작을 고정합니다(`prompt.test.ts`의 "metadata가 없으면 가상 고객, 깨졌으면 빈 정보").
+- `safeParse`는 `parse`와 같은 검사를 하되, 실패해도 예외를 던지지 않고 `{ success, data | error }`를 돌려줍니다. 실패한 칸마다 `issues`에 하나씩 들어가고, `path[0]`이 칸 이름입니다(예: `["installment"]`).
+- `z.record(z.string(), z.unknown())`은 "칸 이름이 글자인 객체"만 통과시킵니다. `"문자열"`, `[1]`, `null`처럼 객체가 아닌 JSON은 여기서 예외가 나서 ④로 갑니다.
 
-(2026-11-08 추가) **"깨짐"의 범위와 대가.** ③에는 JSON 문법 오류만이 아니라 **칸 하나의 값이 틀린 경우**도 들어갑니다. `parse`는 칸 하나라도 어긋나면 객체 전체를 거부하므로, 맞게 온 이름·기기·`callId`까지 함께 버려집니다. 실제 `parseCallContext`에 넣어 본 결과입니다(실측, 작성 때 따로 돌림).
+④에서 가상 고객을 쓰지 않는 이유가 중요합니다. metadata가 있었다는 것은 **실제 통화일 가능성**이 높다는 뜻입니다. 이때 "김민수 고객님"이라고 부르면 실제 고객에게 남의 이름을 부르게 됩니다. 이름을 안 부르는 쪽이 훨씬 안전합니다(1장 원칙 5). 테스트가 이 동작을 고정합니다(`src/call-context.test.ts`의 "metadata가 없으면(브라우저·콘솔 테스트) 가상 고객으로 진행한다", "JSON 객체가 아니면 고객 정보 없이 진행한다").
 
-| 들어온 metadata | 결과 |
-| --- | --- |
-| 없음(`undefined`) 또는 빈 문자열 | ① 가상 고객 "김민수" |
-| 정상 + 스키마에 없는 칸 `extra` | ② 정상. `extra`는 경고 없이 빠짐 |
-| 다른 칸은 정상이고 `installment`만 `"희망함"` | ③ 모든 칸이 기본값(빈 문자열, 할부는 "미기입"). `callId`도 없음 |
-| JSON 문법 오류(닫는 괄호 없음) | ③ 위와 같음 |
+(2026-11-08 갱신) **"깨짐"의 범위와 대가(17-2 #58 고침).** 처음 코드는 ③과 ④를 나누지 않았습니다. `parse`는 칸 하나라도 어긋나면 객체 전체를 거부하므로, 칸 하나의 값만 틀려도 맞게 온 이름·기기·`callId`까지 함께 버려졌습니다. `callId`가 없으면 통화 결과 전송도 건너뜁니다(`call-result.ts` 71∼73, 로그 `통화 결과 전송 생략`). 그래서 보내는 쪽의 오타 하나가 "이름을 안 부르는 통화"에 그치지 않고, **그 통화의 기록이 Firestore에 남지 않는 것**으로 이어졌습니다. 지금은 틀린 칸만 빼고 다시 읽습니다. 표는 실제 `parseCallContext`에 넣어 본 결과이고, 지금 열은 `src/call-context.test.ts`가 고정합니다.
 
-`callId`가 없으면 통화 결과 전송도 건너뜁니다(`call-result.ts` 71∼73, 로그 `통화 결과 전송 생략`). 그래서 보내는 쪽의 오타 하나가 "이름을 안 부르는 통화"에 그치지 않고, **그 통화의 기록이 Firestore에 남지 않는 것**으로 이어집니다. 칸마다 따로 검사해(zod의 칸별 `.catch()` 기본값 등) 맞게 온 칸은 살리는 방법이 있지만 이 레포 코드는 고치지 않았고, 아래 "줄이는 방법"의 보내는 쪽 검증이 먼저입니다.
+| 들어온 metadata | 처음 코드 | 지금 |
+| --- | --- | --- |
+| 없음(`undefined`) 또는 빈 문자열 | ① 가상 고객 "김민수" | 같음 |
+| 정상 + 스키마에 없는 칸 `extra` | ② 정상. `extra`는 경고 없이 빠짐 | 같음 |
+| 다른 칸은 정상이고 `installment`만 `"희망함"` | 모든 칸이 기본값(빈 문자열, 할부는 "미기입"). `callId`도 없음 | ③ 할부만 "미기입", 이름·기기·`callId`는 그대로. 경고 로그에 `invalid: ["installment"]` |
+| JSON 문법 오류(닫는 괄호 없음), 객체가 아닌 JSON | 모든 칸이 기본값 | ④ 같음(빈 정보) |
+
+읽을 점이 둘 있습니다. 경고에는 칸 이름만 남고 틀린 값은 남지 않습니다(고객이 적은 글이 로그에 퍼지지 않음). 그리고 기본값으로 바뀐 칸은 여전히 틀린 정보입니다. 할부를 원한 고객에게 할부 여부를 다시 묻게 되는 식입니다. 그래서 아래 "줄이는 방법"의 보내는 쪽 검증이 먼저라는 점은 그대로입니다.
 
 ### 계약이 두 곳에 적혀 있다는 위험
 
@@ -402,10 +412,10 @@ export function parseCallContext(metadata: string | undefined): CallContext {
 
 대부분 한쪽만 고쳐도 오류가 나지 않습니다. 판정 칸 이름을 바꾸면 관리 화면의 그 칸이 값이 없다는 표시인 "—"(긴 줄표)로 보일 뿐이고, 에이전트 이름이 어긋나면 "에이전트가 방에 안 들어옴"으로만 드러납니다.
 
-[6-web-test.md 3장](../6-web-test.md#3-에이전트에-넘기는-고객-정보-metadata-계약)은 "한쪽을 바꾸면 다른 쪽도 바꾼다"고 적어 두었습니다. 사람의 기억에 기대는 규칙이라, 한쪽만 바뀌면 에이전트가 깨진 metadata로 보고 "고객님"으로 진행하거나(③), 새 필드를 경고 없이 버립니다(zod 기본 동작). 오류가 나지 않으니 늦게 발견됩니다. 줄이는 방법은 다음과 같습니다.
+[6-web-test.md 3장](../6-web-test.md#3-에이전트에-넘기는-고객-정보-metadata-계약)은 "한쪽을 바꾸면 다른 쪽도 바꾼다"고 적어 두었습니다. 사람의 기억에 기대는 규칙이라, 한쪽만 바뀌면 에이전트가 그 칸을 틀린 칸으로 보고 기본값으로 진행하거나(③, 이름 칸이면 "고객님"), 새 필드를 경고 없이 버립니다(zod 기본 동작). 오류가 나지 않으니 늦게 발견됩니다. 줄이는 방법은 다음과 같습니다.
 
 - **보내는 쪽도 검증**: functions-xtool이 이미 `installment` 값을 검사하는 것처럼, 보내기 전에 모양을 확인합니다(지금 하고 있음).
-- **계약 테스트**: 한쪽 레포에 "상대가 보내는 예시 JSON"을 두고, 이 레포의 `parseCallContext`가 그것을 기본값 없이 그대로 읽는지 테스트합니다(14-3절의 생각과 같음).
+- **계약 테스트**: 한쪽 레포에 "상대가 보내는 예시 JSON"을 두고, 이 레포의 `parseCallContext`가 그것을 기본값 없이 그대로 읽는지 테스트합니다(14-3절의 생각과 같음). (2026-11-08 추가) 받는 쪽 동작은 `src/call-context.test.ts`가 고정하지만, 상대가 보내는 예시 JSON으로 하는 계약 테스트는 아직 없습니다.
 - **스키마 공유**: 두 레포가 같은 스키마 파일(예: JSON Schema)을 참조하게 합니다. 레포가 둘이라 설정 비용이 있습니다.
 
 ### 개발 워커와 운영 워커 분리: 배포 이름
@@ -1105,7 +1115,7 @@ cli.runApp ─▶ 워커: LiveKit에 WebSocket 등록 (agentName = 명시 디스
                 │                   'xtool-sales-agent' + metadata 배정
                 ▼
               잡 배정 ─▶ 잡 프로세스에서 entry(ctx)  (start: 미리 데운 유휴 프로세스, dev: 그때 fork)
-                          ├ parseCallContext(ctx.job.metadata)  (zod 계약, 실패 시 안전한 기본값)
+                          ├ parseCallContext(ctx.job.metadata)  (zod 계약, 틀린 칸은 기본값, 객체가 아니면 빈 정보)
                           ├ AgentSession 구성 + 이벤트 구독 + 종료 콜백(결과 전송) 등록
                           ├ session.start → RoomIO (24kHz 입출력, 노이즈 제거, 자막, 세션이 닫히면 방 삭제)
                           └ say ×2 → 반환 (통화는 계속)

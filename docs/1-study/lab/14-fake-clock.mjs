@@ -68,7 +68,7 @@ console.log(
 vi.useRealTimers();
 
 // ── 2. call-guard 첫 테스트를 단계별로 ──────────────────────────────────
-/** src/call-guard.test.ts의 fakeSession과 같은 모양(guardCall이 쓰는 on·say·userState만). */
+/** src/call-guard.test.ts의 fakeSession에서 이 흐름에 필요한 것만(on·say·userState). agentState가 없으면 guardCall은 "말하는 중 아님"으로 봅니다. */
 function fakeSession() {
   const emitter = new EventEmitter();
   let finishPlayout = () => {};

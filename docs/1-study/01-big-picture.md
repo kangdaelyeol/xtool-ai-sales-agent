@@ -553,8 +553,8 @@ src/
     anthropic.ts    Haiku 5.5용 LLM 래퍼 (생각 모드·effort·캐시, 미리 연결 주소)        → 8장
     soniox.ts       말이 끝나면 바로 확정하는 STT                                       → 6장
     index.test.ts   Bedrock 요청이 IAM 키 SigV4로 서명되는지 (AWS에 안 보냄)            → 16-4절
-  *.test.ts         단위 테스트 (ack, call-guard, call-result, prompt, pronunciation,
-                    transcript, models/anthropic, models/index)                         → 14장
+  *.test.ts         단위 테스트 (ack, call-context, call-guard, call-result, prompt,
+                    pronunciation, transcript, models/anthropic, models/index)          → 14장
 scripts/
   check-llm.ts      Haiku 5.5 생각 모드·effort별 지연 측정                              → 8-9, 13장
   compare-llm.ts    Anthropic API vs Bedrock jp. 첫 토큰 A/B                            → 8-9, 13-5절
@@ -601,7 +601,7 @@ PoC 측정에서 병목이 STT 확정 → LLM 첫 토큰 순으로 옮겨 갔고
 
 고객 정보 JSON이 깨지면 가상 고객("김민수")이 아니라 **빈 정보**("고객님")로 진행합니다. 실제 고객에게 엉뚱한 이름을 부르는 것보다 이름을 안 부르는 편이 안전하기 때문입니다([src/call-context.ts](../../src/call-context.ts)).
 
-(2026-11-08 추가) 정확히는 metadata가 아예 없으면(Agent Console이나 `lk agent console`처럼 metadata 없이 시작하는 테스트) 가상 고객으로, 있는데 읽지 못하면 빈 정보로 진행합니다. 같은 생각이 다른 곳에도 있습니다. 노이즈 제거가 실패하면 원본 소리를 그대로 넘기고(2-7절), 즉시 반응 음성을 미리 합성하지 못했으면 그때그때 합성하며(13-5절), 통화 결과 전송이 실패하면 로그를 남깁니다(15-6절, 다시 보내기는 아직 없음).
+(2026-11-08 추가) 정확히는 metadata가 아예 없으면(Agent Console이나 `lk agent console`처럼 metadata 없이 시작하는 테스트) 가상 고객으로, 있는데 읽지 못하면 빈 정보로 진행합니다. 칸 일부만 틀렸으면 그 칸만 기본값으로 두고 나머지(통화 결과를 보낼 때 쓰는 `callId` 포함)는 살립니다(4-3절). 같은 생각이 다른 곳에도 있습니다. 노이즈 제거가 실패하면 원본 소리를 그대로 넘기고(2-7절), 즉시 반응 음성을 미리 합성하지 못했으면 그때그때 합성하며(13-5절), 통화 결과 전송이 실패하면 로그를 남깁니다(15-6절, 다시 보내기는 아직 없음).
 
 ---
 

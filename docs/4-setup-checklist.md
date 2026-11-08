@@ -121,7 +121,7 @@
 | 2-1 | 새 터미널에서도 Node 24가 잡히게 하기 | `package.json`이 Node 24 이상을 요구하고, `.npmrc`의 `engine-strict=true` 때문에 낮은 판이면 설치가 오류로 멈춤 | `nvm alias default 24` (nvm을 쓸 때. 레포의 `.nvmrc`도 24) | 새 터미널에서 `node -v`가 `v24.x` |
 | 2-2 | corepack 켜기 | `package.json`의 `packageManager`에 적힌 pnpm 12.16.1을 자동으로 받아 씀. Dockerfile·CI와 같은 판 | `corepack enable` | 레포에서 `pnpm -v`가 `12.16.1` |
 | 2-3 | 의존성 설치 | `pnpm-lock.yaml` 그대로 설치하고 Soniox 패치(`patches/`)를 적용함 | `pnpm install` | 오류 없이 끝남 (피어 경고 없음) |
-| 2-4 | 키 없이 도는 검사 | CI와 같은 검사. 처음부터 고장 난 상태가 아닌지 봄 | `pnpm typecheck && pnpm lint && pnpm format:check && pnpm test` | 모두 통과. 2026-11-08 기준 테스트 파일 8개, 테스트 36개 |
+| 2-4 | 키 없이 도는 검사 | CI와 같은 검사. 처음부터 고장 난 상태가 아닌지 봄 | `pnpm typecheck && pnpm lint && pnpm format:check && pnpm test` | 모두 통과. 2026-11-08 기준 테스트 파일 9개, 테스트 45개 |
 
 - 설치 끝에 나오는 `Agent skills awaiting approval: dotenv.`는 무시해도 됩니다. pnpm 12가 패키지에 들어 있는 코딩 에이전트용 스킬을 설치할지 묻는 것이고, 실행에는 필요 없습니다.
 - 셸의 기본 Node가 24보다 낮으면(처음 작업한 맥은 Node 22였음) 2-1을 하지 않았을 때 `pnpm`이 안 잡히거나 `engine-strict` 오류가 납니다.
@@ -288,7 +288,7 @@ lk agent simulate text --scenarios scenarios.yaml
 
 ## 8. originalshq와 맞출 계약
 
-(2026-11-08 갱신) functions-xtool이 에이전트를 배정할 때 job metadata(배정과 함께 보내는 통화별 정보 문자열)에 아래 JSON을 넣습니다(`src/call-context.ts`). 웹 테스트에서는 functions-xtool `createVoiceAgentSession`이 브라우저용 접속 토큰의 배정 정보에 이 JSON을 넣고, 이때 `callId`는 방 이름입니다([6-web-test.md 3장](6-web-test.md#3-에이전트에-넘기는-고객-정보-metadata-계약)). Agent Console·콘솔·디버거에는 metadata가 없어 가상 고객으로 진행합니다. 전화 발신 단계에서도 같은 모양을 씁니다.
+(2026-11-08 갱신) functions-xtool이 에이전트를 배정할 때 job metadata(배정과 함께 보내는 통화별 정보 문자열)에 아래 JSON을 넣습니다(`src/call-context.ts`). 웹 테스트에서는 functions-xtool `createVoiceAgentSession`이 브라우저용 접속 토큰의 배정 정보에 이 JSON을 넣고, 이때 `callId`는 방 이름입니다([6-web-test.md 3장](6-web-test.md#3-에이전트에-넘기는-고객-정보-metadata-계약)). Agent Console·콘솔·디버거에는 metadata가 없어 가상 고객으로 진행합니다. 칸 일부가 틀리면 그 칸만 기본값으로 두고 나머지(`callId` 포함)는 살립니다(2026-11-08부터). 전화 발신 단계에서도 같은 모양을 씁니다.
 
 ```json
 {
@@ -321,7 +321,7 @@ lk agent simulate text --scenarios scenarios.yaml
 | Soniox 플러그인 패치 | `patches/@livekit__agents-plugin-soniox@1.9.5.patch`가 flush를 Soniox `finalize`로 바꿉니다(말 끝 판단 단축). `@livekit/agents-plugin-soniox` 버전을 올리면 패치가 맞지 않을 수 있으니 `pnpm install` 오류와 `5-poc-results.md`의 지연을 다시 확인합니다 |
 | (2026-11-08 추가) SDK의 `manualFlush` | LiveKit Agents의 GitHub 기본 브랜치에 STT 능력 표시 `manualFlush`가 생겼습니다. 이 표시를 켠 STT에는 코어가 턴 경계에서 스트림을 직접 flush합니다. 아직 출시 전이고 설치된 1.9.5에는 없습니다. SDK와 Soniox 플러그인을 이 기능이 들어간 판으로 올리면, `src/main.ts`의 리스너가 보내는 flush와 코어가 보내는 flush가 겹쳐 말 끝마다 finalize가 두 번 갈 수 있고 패치(`patches/`)도 맞지 않게 됩니다. 업그레이드 때 확인하고, 겹치면 패치와 리스너를 빼고 지연을 다시 잽니다([학습서 6-5](1-study/06-stt.md#이-해결책의-주의점)) |
 | 첫 멘트 끼어들기 | (2026-11-08 갱신) AI·녹음 고지는 끝까지 들리도록 끼어들기를 막았고, 이어지는 질문은 열어 두었습니다. 고지 중의 고객 소리도 STT로 보내지만(`discardAudioIfUninterruptible: false`), 고객이 고지 도중에 말을 마쳐 턴이 고지 재생 중에 확정되면 그 턴은 버려집니다(로그에 "skipping user input" 경고). 고객 말이 고지가 끝날 때까지 이어진 경우에만 고지 뒤에 처리됩니다. 또 브라우저 테스트에서는 AI가 처음 말하기 시작한 뒤 3초 동안(AEC 워밍업) 이 설정과 상관없이 STT에 무음이 들어갑니다. 발신 전화에서는 이 워밍업이 꺼집니다. 그래서 "첫 멘트가 끝난 뒤 반영"은 보장되지 않습니다([학습서 7-6](1-study/07-turn-taking.md#7-6-끼어들-수-없는-말-ai녹음-고지)) |
-| (2026-11-08 추가) 무응답 종료 | 고객이 말하지 않고 AI도 말하거나 답을 준비하지 않는 채로 10초가 지나면 "여보세요? 제 목소리 잘 들리세요?"를 하고, 재생이 끝난 뒤 10초 안에 고객이 말하지 않으면 작별 인사 후 끊습니다(`src/call-guard.ts`). 통화 최대 길이는 8분입니다. 즉시 반응 "네네." 뒤 본 답을 기다리는 동안에도 이 시계가 돕니다([2-tech-stack.md 7장](2-tech-stack.md#7-우리가-직접-만들-기능-목록)) |
+| (2026-11-08 추가) 무응답 종료 | 고객이 말하지 않고 AI도 말하거나 답을 준비하지 않는 채로 10초가 지나면 "여보세요? 제 목소리 잘 들리세요?"를 하고, 재생이 끝난 뒤 10초 안에 고객이 대답하지 않으면 작별 인사 후 끊습니다(`src/call-guard.ts`). 통화 최대 길이는 8분입니다. 즉시 반응 "네네." 뒤 본 답을 기다리는 동안에도 SDK의 시계는 돌지만, `guardCall`이 그동안은 묻지 않습니다(2026-11-08, [2-tech-stack.md 7장](2-tech-stack.md#7-우리가-직접-만들-기능-목록)) |
 
 ---
 
